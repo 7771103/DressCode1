@@ -1,0 +1,74 @@
+*.iml
+.gradle/
+
+# 本地和机器相关配置
+local.properties
+/local.properties
+/.idea/
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+
+# Mac / Windows 系统文件
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 构建输出
+/build
+**/build/
+**/out/
+/captures
+.externalNativeBuild
+.cxx
+
+# Gradle 缓存和日志
+.gradle/
+**/.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# 日志文件
+*.log
+
+# 签名及敏感信息（如有）
+*.jks
+*.keystore
+*.pem
+*.p12
+*.key
+*.keystore.properties
+signing.properties
+
+# APK / AAB 打包产物
+*.apk
+*.ap_
+*.aab
+
+# Android Studio / IntelliJ 额外文件
+.navigation/
+captures/
+.idea_modules/
+.classpath
+.project
+.settings/
+.loadpath
+
+# Kotlin/Java 编译中间文件
+*.class
+*.kt.metadata
+
+# NDK / CMake 相关
+obj/
+*.o
+*.so
+
+# 其他常见工具
+.vs/
+.vscode/
+*.swp
+*.swo
+*.orig
