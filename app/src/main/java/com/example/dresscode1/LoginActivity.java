@@ -1,6 +1,7 @@
 package com.example.dresscode1;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.widget.Button;
@@ -68,6 +69,16 @@ public class LoginActivity extends AppCompatActivity {
                             LoginResponse body = response.body();
                             if (body.isOk()) {
                                 tvStatus.setText("登录成功");
+                                
+                                // 保存用户信息
+                                SharedPreferences prefs = getSharedPreferences("user_prefs", MODE_PRIVATE);
+                                prefs.edit()
+                                    .putInt("userId", body.getUserId())
+                                    .putString("nickname", body.getNickname())
+                                    .putString("avatarUrl", body.getAvatarUrl())
+                                    .putString("city", body.getCity() != null ? body.getCity() : "北京")
+                                    .apply();
+                                
                                 // 登录成功，进入首页
                                 Intent intent = new Intent(LoginActivity.this, HomeActivity.class);
                                 startActivity(intent);

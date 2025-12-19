@@ -1,0 +1,24 @@
+package com.example.dresscode1.network.dto;
+
+import com.google.gson.annotations.SerializedName;
+
+public class FavoriteResponse {
+    @SerializedName("ok")
+    private boolean ok;
+    
+    @SerializedName("msg")
+    private String msg;
+    
+    @SerializedName("isFavorited")
+    private boolean isFavorited;
+
+    public boolean isOk() { return ok; }
+    public void setOk(boolean ok) { this.ok = ok; }
+    
+    public String getMsg() { return msg; }
+    public void setMsg(String msg) { this.msg = msg; }
+    
+    public boolean isFavorited() { return isFavorited; }
+    public void setFavorited(boolean favorited) { isFavorited = favorited; }
+}
+

@@ -1,15 +1,24 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from sqlalchemy import func, desc
 import pymysql
 import re
 import os
+import json
+from datetime import datetime
 
 
 def create_app():
-    app = Flask(__name__)
+    app = Flask(__name__, static_folder='../dataset/data', static_url_path='/dataset')
     CORS(app)
+    
+    # 添加uploads静态文件夹
+    uploads_folder = os.path.join(os.path.dirname(__file__), "uploads")
+    os.makedirs(uploads_folder, exist_ok=True)
+    app.add_url_rule('/uploads/<filename>', 'uploaded_file', build_only=True)
 
     user = os.environ.get("MYSQL_USER", "root")
     password = os.environ.get("MYSQL_PASSWORD", "123456")
@@ -21,6 +30,11 @@ def create_app():
         f"mysql+pymysql://{user}:{password}@{host}:{port}/{db_name}?charset=utf8mb4"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "uploads")
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB max file size
+    
+    # 创建上传目录
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     db = SQLAlchemy(app)
 
@@ -30,6 +44,58 @@ def create_app():
         phone = db.Column(db.String(20), unique=True, nullable=False)
         password_hash = db.Column(db.String(255), nullable=False)
         nickname = db.Column(db.String(50))
+        avatar_url = db.Column(db.String(500))
+        city = db.Column(db.String(50))
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    class Post(db.Model):
+        __tablename__ = "posts"
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        image_url = db.Column(db.String(500), nullable=False)
+        content = db.Column(db.Text)
+        city = db.Column(db.String(50))
+        tags = db.Column(db.JSON)
+        like_count = db.Column(db.Integer, default=0)
+        comment_count = db.Column(db.Integer, default=0)
+        favorite_count = db.Column(db.Integer, default=0)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        user = db.relationship("User", backref="posts")
+
+    class Like(db.Model):
+        __tablename__ = "likes"
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        post_id = db.Column(db.Integer, db.ForeignKey("posts.id"), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint("user_id", "post_id", name="uq_user_post"),)
+        post = db.relationship("Post", backref="likes")
+
+    class Favorite(db.Model):
+        __tablename__ = "favorites"
+        id = db.Column(db.Integer, primary_key=True)
+        user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        post_id = db.Column(db.Integer, db.ForeignKey("posts.id"), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint("user_id", "post_id", name="uq_user_post_fav"),)
+        post = db.relationship("Post", backref="favorites")
+
+    class Comment(db.Model):
+        __tablename__ = "comments"
+        id = db.Column(db.Integer, primary_key=True)
+        post_id = db.Column(db.Integer, db.ForeignKey("posts.id"), nullable=False)
+        user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        content = db.Column(db.Text, nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        user = db.relationship("User", backref="comments")
+
+    class Follow(db.Model):
+        __tablename__ = "follows"
+        id = db.Column(db.Integer, primary_key=True)
+        follower_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        following_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        __table_args__ = (db.UniqueConstraint("follower_id", "following_id", name="uq_follower_following"),)
 
     @app.route("/api/register", methods=["POST"])
     def register():
@@ -70,9 +136,11 @@ def create_app():
 
         user = User.query.filter_by(phone=phone).first()
         if not user:
+            app.logger.warning(f"登录失败: 用户不存在 - phone={phone}")
             return jsonify({"ok": False, "msg": "账号或密码错误"}), 401
 
         if not check_password_hash(user.password_hash, password):
+            app.logger.warning(f"登录失败: 密码错误 - phone={phone}")
             return jsonify({"ok": False, "msg": "账号或密码错误"}), 401
 
         return jsonify(
@@ -81,8 +149,562 @@ def create_app():
                 "msg": "登录成功",
                 "userId": user.id,
                 "nickname": user.nickname,
+                "avatarUrl": user.avatar_url,
+                "city": user.city,
             }
         ), 200
+
+    # 获取帖子列表
+    @app.route("/api/posts", methods=["GET"])
+    def get_posts():
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        city = request.args.get("city", type=str)
+        user_id = request.args.get("user_id", type=int)
+        tab = request.args.get("tab", "recommend", type=str)  # recommend, follow, city
+        
+        query = Post.query
+        
+        # 如果指定了user_id，获取该用户发布的帖子
+        if user_id:
+            query = query.filter(Post.user_id == user_id)
+        elif tab == "city" and city:
+            query = query.filter(Post.city == city)
+        elif tab == "follow" and user_id:
+            # 获取关注用户的帖子
+            following_ids = db.session.query(Follow.following_id).filter(
+                Follow.follower_id == user_id
+            ).subquery()
+            query = query.filter(Post.user_id.in_(db.session.query(following_ids)))
+        
+        posts = query.order_by(desc(Post.created_at)).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        result = []
+        current_user_id = request.args.get("current_user_id", type=int)
+        
+        for post in posts.items:
+            is_liked = False
+            is_favorited = False
+            if current_user_id:
+                is_liked = Like.query.filter_by(user_id=current_user_id, post_id=post.id).first() is not None
+                is_favorited = Favorite.query.filter_by(user_id=current_user_id, post_id=post.id).first() is not None
+            
+            result.append({
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": post.user.nickname or "用户" + str(post.user_id),
+                "userAvatar": post.user.avatar_url,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "isLiked": is_liked,
+                "isFavorited": is_favorited,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            })
+        
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "page": page,
+            "perPage": per_page,
+            "total": posts.total,
+        }), 200
+
+    # 获取帖子详情
+    @app.route("/api/posts/<int:post_id>", methods=["GET"])
+    def get_post_detail(post_id):
+        post = Post.query.get_or_404(post_id)
+        current_user_id = request.args.get("current_user_id", type=int)
+        
+        is_liked = False
+        is_favorited = False
+        if current_user_id:
+            is_liked = Like.query.filter_by(user_id=current_user_id, post_id=post.id).first() is not None
+            is_favorited = Favorite.query.filter_by(user_id=current_user_id, post_id=post.id).first() is not None
+        
+        # 获取评论列表
+        comments = Comment.query.filter_by(post_id=post_id).order_by(desc(Comment.created_at)).all()
+        comment_list = []
+        for comment in comments:
+            comment_list.append({
+                "id": comment.id,
+                "userId": comment.user_id,
+                "userNickname": comment.user.nickname or "用户" + str(comment.user_id),
+                "userAvatar": comment.user.avatar_url,
+                "content": comment.content,
+                "createdAt": comment.created_at.isoformat() if comment.created_at else None,
+            })
+        
+        user = User.query.get(post.user_id)
+        user_nickname = user.nickname if user else None
+        user_avatar = user.avatar_url if user else None
+        
+        return jsonify({
+            "ok": True,
+            "data": {
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": user_nickname or "用户" + str(post.user_id),
+                "userAvatar": user_avatar,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "isLiked": is_liked,
+                "isFavorited": is_favorited,
+                "comments": comment_list,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            }
+        }), 200
+
+    # 创建帖子
+    @app.route("/api/posts", methods=["POST"])
+    def create_post():
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        image_url = (data.get("imageUrl") or "").strip()
+        content = (data.get("content") or "").strip()
+        city = (data.get("city") or "").strip() or None
+        tags = data.get("tags")  # 可以是列表
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        if not image_url:
+            return jsonify({"ok": False, "msg": "图片URL必填"}), 400
+        
+        # 验证用户是否存在
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+        
+        # 创建帖子
+        post = Post(
+            user_id=user_id,
+            image_url=image_url,
+            content=content,
+            city=city,
+            tags=tags if isinstance(tags, list) else None,
+            like_count=0,
+            comment_count=0
+        )
+        db.session.add(post)
+        db.session.commit()
+        
+        return jsonify({
+            "ok": True,
+            "msg": "发帖成功",
+            "data": {
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": user.nickname or "用户" + str(user_id),
+                "userAvatar": user.avatar_url,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "isLiked": False,
+                "isFavorited": False,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            }
+        }), 201
+
+    # 编辑帖子
+    @app.route("/api/posts/<int:post_id>", methods=["PUT"])
+    def update_post(post_id):
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        
+        post = Post.query.get_or_404(post_id)
+        
+        # 验证是否是帖子作者
+        if post.user_id != user_id:
+            return jsonify({"ok": False, "msg": "无权编辑此帖子"}), 403
+        
+        # 更新帖子内容
+        if "content" in data:
+            post.content = (data.get("content") or "").strip()
+        if "city" in data:
+            post.city = (data.get("city") or "").strip() or None
+        if "tags" in data:
+            tags = data.get("tags")
+            post.tags = tags if isinstance(tags, list) else None
+        if "imageUrl" in data:
+            image_url = (data.get("imageUrl") or "").strip()
+            if image_url:
+                post.image_url = image_url
+        
+        db.session.commit()
+        
+        # 获取点赞和收藏状态
+        is_liked = Like.query.filter_by(user_id=user_id, post_id=post.id).first() is not None
+        is_favorited = Favorite.query.filter_by(user_id=user_id, post_id=post.id).first() is not None
+        
+        user = User.query.get(post.user_id)
+        user_nickname = user.nickname if user else None
+        user_avatar = user.avatar_url if user else None
+        
+        return jsonify({
+            "ok": True,
+            "msg": "编辑成功",
+            "data": {
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": user_nickname or "用户" + str(post.user_id),
+                "userAvatar": user_avatar,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "isLiked": is_liked,
+                "isFavorited": is_favorited,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            }
+        }), 200
+
+    # 删除帖子
+    @app.route("/api/posts/<int:post_id>", methods=["DELETE"])
+    def delete_post(post_id):
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        
+        post = Post.query.get_or_404(post_id)
+        
+        # 验证是否是帖子作者
+        if post.user_id != user_id:
+            return jsonify({"ok": False, "msg": "无权删除此帖子"}), 403
+        
+        db.session.delete(post)
+        db.session.commit()
+        
+        return jsonify({"ok": True, "msg": "删除成功"}), 200
+
+    # 点赞/取消点赞
+    @app.route("/api/posts/<int:post_id>/like", methods=["POST"])
+    def toggle_like(post_id):
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        
+        post = Post.query.get_or_404(post_id)
+        like = Like.query.filter_by(user_id=user_id, post_id=post_id).first()
+        
+        if like:
+            # 取消点赞
+            db.session.delete(like)
+            post.like_count = max(0, post.like_count - 1)
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "取消点赞成功", "isLiked": False}), 200
+        else:
+            # 点赞
+            like = Like(user_id=user_id, post_id=post_id)
+            db.session.add(like)
+            post.like_count += 1
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "点赞成功", "isLiked": True}), 200
+
+    # 收藏/取消收藏
+    @app.route("/api/posts/<int:post_id>/favorite", methods=["POST"])
+    def toggle_favorite(post_id):
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        
+        post = Post.query.get_or_404(post_id)
+        favorite = Favorite.query.filter_by(user_id=user_id, post_id=post_id).first()
+        
+        if favorite:
+            # 取消收藏
+            db.session.delete(favorite)
+            post.favorite_count = max(0, post.favorite_count - 1)
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "取消收藏成功", "isFavorited": False}), 200
+        else:
+            # 收藏
+            favorite = Favorite(user_id=user_id, post_id=post_id)
+            db.session.add(favorite)
+            post.favorite_count += 1
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "收藏成功", "isFavorited": True}), 200
+
+    # 添加评论
+    @app.route("/api/posts/<int:post_id>/comments", methods=["POST"])
+    def add_comment(post_id):
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        content = (data.get("content") or "").strip()
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        if not content:
+            return jsonify({"ok": False, "msg": "评论内容不能为空"}), 400
+        
+        post = Post.query.get_or_404(post_id)
+        comment = Comment(post_id=post_id, user_id=user_id, content=content)
+        db.session.add(comment)
+        post.comment_count += 1
+        db.session.commit()
+        
+        return jsonify({
+            "ok": True,
+            "msg": "评论成功",
+            "data": {
+                "id": comment.id,
+                "userId": comment.user_id,
+                "userNickname": comment.user.nickname or "用户" + str(comment.user_id),
+                "userAvatar": comment.user.avatar_url,
+                "content": comment.content,
+                "createdAt": comment.created_at.isoformat() if comment.created_at else None,
+            }
+        }), 201
+
+    # 更新用户信息（头像、城市等）
+    @app.route("/api/users/<int:user_id>", methods=["PUT"])
+    def update_user(user_id):
+        data = request.get_json(silent=True) or {}
+        user = User.query.get_or_404(user_id)
+        
+        if "nickname" in data:
+            user.nickname = data["nickname"]
+        if "avatarUrl" in data:
+            user.avatar_url = data["avatarUrl"]
+        if "city" in data:
+            user.city = data["city"]
+        
+        db.session.commit()
+        
+        return jsonify({
+            "ok": True,
+            "msg": "更新成功",
+            "data": {
+                "id": user.id,
+                "nickname": user.nickname,
+                "avatarUrl": user.avatar_url,
+                "city": user.city,
+            }
+        }), 200
+
+    # 修改密码
+    @app.route("/api/users/<int:user_id>/password", methods=["PUT"])
+    def change_password(user_id):
+        data = request.get_json(silent=True) or {}
+        old_password = (data.get("oldPassword") or "").strip()
+        new_password = (data.get("newPassword") or "").strip()
+        
+        if not old_password or not new_password:
+            return jsonify({"ok": False, "msg": "原密码和新密码必填"}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({"ok": False, "msg": "新密码至少6位"}), 400
+        
+        user = User.query.get_or_404(user_id)
+        
+        if not check_password_hash(user.password_hash, old_password):
+            return jsonify({"ok": False, "msg": "原密码错误"}), 400
+        
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        
+        return jsonify({"ok": True, "msg": "密码修改成功"}), 200
+
+    # 获取用户的点赞列表
+    @app.route("/api/users/<int:user_id>/likes", methods=["GET"])
+    def get_user_likes(user_id):
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        
+        likes = Like.query.filter_by(user_id=user_id).order_by(desc(Like.created_at)).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        result = []
+        for like in likes.items:
+            post = like.post
+            result.append({
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": post.user.nickname or "用户" + str(post.user_id),
+                "userAvatar": post.user.avatar_url,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            })
+        
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "page": page,
+            "perPage": per_page,
+            "total": likes.total,
+        }), 200
+
+    # 获取用户的收藏列表
+    @app.route("/api/users/<int:user_id>/favorites", methods=["GET"])
+    def get_user_favorites(user_id):
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 20, type=int)
+        
+        favorites = Favorite.query.filter_by(user_id=user_id).order_by(desc(Favorite.created_at)).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        result = []
+        for favorite in favorites.items:
+            post = favorite.post
+            result.append({
+                "id": post.id,
+                "userId": post.user_id,
+                "userNickname": post.user.nickname or "用户" + str(post.user_id),
+                "userAvatar": post.user.avatar_url,
+                "imageUrl": post.image_url,
+                "content": post.content,
+                "city": post.city,
+                "tags": post.tags or [],
+                "likeCount": post.like_count,
+                "commentCount": post.comment_count,
+                "favoriteCount": post.favorite_count,
+                "createdAt": post.created_at.isoformat() if post.created_at else None,
+            })
+        
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "page": page,
+            "perPage": per_page,
+            "total": favorites.total,
+        }), 200
+
+    # 获取天气信息
+    @app.route("/api/weather", methods=["GET"])
+    def get_weather():
+        city = request.args.get("city", "北京")
+        # 模拟天气数据，实际应该调用天气API
+        weather_data = {
+            "city": city,
+            "temperature": 25,
+            "condition": "晴朗",
+            "icon": "☀️"
+        }
+        return jsonify({"ok": True, "data": weather_data}), 200
+
+    # AI对话接口
+    @app.route("/api/chat", methods=["POST"])
+    def chat():
+        data = request.get_json(silent=True) or {}
+        user_id = data.get("userId")
+        message = data.get("message", "").strip()
+        history = data.get("history", [])
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        if not message:
+            return jsonify({"ok": False, "msg": "消息内容不能为空"}), 400
+        
+        # 简单的AI回复逻辑（实际应该调用AI模型）
+        # 这里可以根据消息内容生成回复
+        response_text = generate_ai_response(message, history)
+        
+        return jsonify({
+            "ok": True,
+            "data": {
+                "role": "assistant",
+                "content": response_text
+            }
+        }), 200
+
+    def generate_ai_response(message, history):
+        """生成AI回复（简单版本，实际应该调用AI模型）"""
+        message_lower = message.lower()
+        
+        # 简单的关键词匹配回复
+        if any(word in message_lower for word in ["穿搭", "搭配", "衣服"]):
+            return "我可以帮你推荐穿搭！你可以告诉我你的场合需求，比如：工作、约会、休闲等，我会为你推荐合适的搭配方案。"
+        elif any(word in message_lower for word in ["颜色", "色彩"]):
+            return "颜色搭配很重要！建议选择相近色系或对比色系。比如：蓝色配白色、黑色配白色都是经典搭配。"
+        elif any(word in message_lower for word in ["风格", "类型"]):
+            return "常见的穿搭风格有：休闲风、商务风、运动风、甜美风等。你想了解哪种风格呢？"
+        elif any(word in message_lower for word in ["你好", "hello", "hi"]):
+            return "你好！我是你的穿搭智能助手，可以为你提供穿搭建议、搭配推荐等服务。有什么可以帮助你的吗？"
+        else:
+            return "感谢你的提问！关于穿搭，我可以为你提供以下帮助：\n1. 搭配建议\n2. 颜色推荐\n3. 风格指导\n4. 场合穿搭\n\n请告诉我你的具体需求吧！"
+
+    # 上传头像
+    @app.route("/api/users/avatar", methods=["POST"])
+    def upload_avatar():
+        if "file" not in request.files:
+            return jsonify({"ok": False, "msg": "文件不能为空"}), 400
+        
+        file = request.files["file"]
+        user_id = request.form.get("userId")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "用户ID必填"}), 400
+        
+        if file.filename == "":
+            return jsonify({"ok": False, "msg": "文件不能为空"}), 400
+        
+        # 检查文件类型
+        if not file.filename.lower().endswith((".jpg", ".jpeg", ".png")):
+            return jsonify({"ok": False, "msg": "只支持jpg、jpeg、png格式"}), 400
+        
+        # 保存文件
+        filename = secure_filename(f"avatar_{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg")
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        file.save(filepath)
+        
+        # 更新用户头像URL
+        avatar_url = f"/uploads/{filename}"
+        user = User.query.get(int(user_id))
+        if user:
+            user.avatar_url = avatar_url
+            db.session.commit()
+            
+            return jsonify({
+                "ok": True,
+                "msg": "上传成功",
+                "data": {
+                    "id": user.id,
+                    "nickname": user.nickname,
+                    "avatarUrl": avatar_url,
+                    "city": user.city,
+                }
+            }), 200
+        else:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+
+    # 提供上传文件的静态访问
+    @app.route("/uploads/<filename>")
+    def uploaded_file(filename):
+        return app.send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
     return app
 

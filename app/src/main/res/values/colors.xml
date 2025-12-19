@@ -5,9 +5,11 @@
     <color name="primary_blue_gray">#748CAB</color>
     <color name="accent_blue_mist">#A9BCD0</color>
     <color name="bg_light">#F4F6F8</color>
+    <color name="text_primary">#1A1A1A</color>
     <color name="text_primary_dark">#1A1A1A</color>
     <color name="text_secondary">#505050</color>
     <color name="text_tertiary">#9A9A9A</color>
+    <color name="divider">#E0E0E0</color>
     <color name="success_green">#4CAF50</color>
     <color name="warning_yellow">#FFC107</color>
     <color name="error_red">#F44336</color>
