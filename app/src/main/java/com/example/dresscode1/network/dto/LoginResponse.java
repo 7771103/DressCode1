@@ -16,6 +16,18 @@ public class LoginResponse {
     public int getUserId() {
         return userId;
     }
+    
+    public void setOk(boolean ok) {
+        this.ok = ok;
+    }
+    
+    public void setMsg(String msg) {
+        this.msg = msg;
+    }
+    
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
 }
 
 

@@ -72,3 +72,54 @@ obj/
 *.swp
 *.swo
 *.orig
+
+# Python 虚拟环境
+venv/
+env/
+.venv/
+ENV/
+virtualenv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# 图片文件（保留 Android 资源目录中的图片）
+# 先保留 Android 资源目录（确保父目录不被忽略）
+!app/src/main/res/
+!app/src/main/res/**
+# 忽略数据集中的图片目录
+dataset/data/images/
+# 忽略根目录和其他位置的图片文件
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.svg
+*.ico
+*.tiff
+*.tif
+# 但保留 Android 资源目录中的图片
+!app/src/main/res/**/*.jpg
+!app/src/main/res/**/*.jpeg
+!app/src/main/res/**/*.png
+!app/src/main/res/**/*.gif
+!app/src/main/res/**/*.bmp
+!app/src/main/res/**/*.webp
+!app/src/main/res/**/*.svg
+!app/src/main/res/**/*.ico

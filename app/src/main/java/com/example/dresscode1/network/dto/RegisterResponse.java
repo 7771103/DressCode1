@@ -19,5 +19,17 @@ public class RegisterResponse {
     public Integer getUserId() {
         return userId;
     }
+    
+    public void setOk(boolean ok) {
+        this.ok = ok;
+    }
+    
+    public void setMsg(String msg) {
+        this.msg = msg;
+    }
+    
+    public void setUserId(Integer userId) {
+        this.userId = userId;
+    }
 }
 
