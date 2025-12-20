@@ -138,6 +138,18 @@
                         android:layout_marginBottom="16dp"
                         android:contentDescription="帖子图片" />
 
+                    <!-- 我来试试按钮 -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTryOn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="我来试试"
+                        android:textSize="16sp"
+                        android:textColor="@color/white"
+                        android:layout_marginBottom="16dp"
+                        app:backgroundTint="@color/primary_blue_gray"
+                        android:padding="12dp" />
+
                     <!-- 操作按钮 -->
                     <LinearLayout
                         android:layout_width="match_parent"

@@ -106,33 +106,139 @@
             app:layout_constraintEnd_toEndOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <androidx.core.widget.NestedScrollView
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/svWardrobe"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:visibility="gone"
+        android:background="@color/bg_light"
         app:layout_constraintTop_toBottomOf="@+id/tvTitle"
         app:layout_constraintBottom_toTopOf="@+id/bottomBar"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:fillViewport="true">
+        app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@color/bg_light"
-            android:padding="24dp"
-            android:gravity="center">
+        <!-- 上方横向滑动图片栏 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvWardrobeItems"
+            android:layout_width="0dp"
+            android:layout_height="180dp"
+            android:orientation="horizontal"
+            android:paddingTop="16dp"
+            android:paddingBottom="16dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-            <TextView
-                android:layout_width="wrap_content"
+        <!-- 下方用户照片和合成区域 -->
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/svWardrobeContent"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:fillViewport="true"
+            app:layout_constraintTop_toBottomOf="@+id/rvWardrobeItems"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="衣橱功能开发中..."
-                android:textSize="16sp"
-                android:textColor="@color/text_secondary" />
-        </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
+                android:orientation="vertical"
+                android:padding="24dp">
+
+                <!-- 用户照片区域 -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="您的照片"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary_dark"
+                            android:layout_marginBottom="12dp" />
+
+                        <!-- 横向滑动的用户照片列表 -->
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/rvUserPhotos"
+                            android:layout_width="match_parent"
+                            android:layout_height="440dp"
+                            android:orientation="horizontal"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="8dp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- 合成按钮 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnConfirmTryOn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="确认合成"
+                    android:textSize="16sp"
+                    android:textColor="@color/white"
+                    android:padding="16dp"
+                    android:layout_marginTop="8dp"
+                    app:backgroundTint="@color/primary_blue_gray"
+                    android:visibility="gone" />
+
+                <!-- 合成结果区域 -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardResult"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="2dp"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="合成结果"
+                            android:textSize="18sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary_dark"
+                            android:layout_marginBottom="12dp" />
+
+                        <ImageView
+                            android:id="@+id/ivResultPhoto"
+                            android:layout_width="match_parent"
+                            android:layout_height="300dp"
+                            android:scaleType="centerCrop"
+                            android:background="@color/bg_light"
+                            android:contentDescription="合成结果" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSaveResult"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="保存结果"
+                            android:textSize="14sp"
+                            android:layout_marginTop="12dp"
+                            app:backgroundTint="@color/primary_blue_gray" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/svProfile"

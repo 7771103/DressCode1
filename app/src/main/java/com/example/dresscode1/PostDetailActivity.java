@@ -26,6 +26,8 @@ import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.UserInfo;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
+import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.utils.TimeUtils;
 import com.example.dresscode1.utils.UserPrefs;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -56,6 +58,7 @@ public class PostDetailActivity extends AppCompatActivity {
     private com.google.android.material.button.MaterialButton btnSendComment;
     private LinearLayout llUserInfo;
     private MaterialButton btnFollow;
+    private MaterialButton btnTryOn;
 
     private Post post;
     private CommentAdapter commentAdapter;
@@ -109,6 +112,7 @@ public class PostDetailActivity extends AppCompatActivity {
         btnSendComment = findViewById(R.id.btnSendComment);
         llUserInfo = findViewById(R.id.llUserInfo);
         btnFollow = findViewById(R.id.btnFollow);
+        btnTryOn = findViewById(R.id.btnTryOn);
     }
 
     private void setupToolbar() {
@@ -204,6 +208,7 @@ public class PostDetailActivity extends AppCompatActivity {
         btnCollect.setOnClickListener(v -> toggleCollect());
         btnSendComment.setOnClickListener(v -> sendComment());
         btnFollow.setOnClickListener(v -> toggleFollow());
+        btnTryOn.setOnClickListener(v -> tryOnClothing());
         
         // 点击头像和用户名区域，跳转到用户主页
         llUserInfo.setOnClickListener(v -> {
@@ -213,6 +218,28 @@ public class PostDetailActivity extends AppCompatActivity {
                 startActivity(intent);
             }
         });
+    }
+    
+    private void tryOnClothing() {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (post == null || post.getImagePath() == null || post.getImagePath().isEmpty()) {
+            Toast.makeText(this, "该帖子没有图片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 跳转到衣橱页面，传递帖子图片URL
+        Intent intent = new Intent(this, HomeActivity.class);
+        intent.putExtra("action", "try_on");
+        intent.putExtra("post_image_url", ApiClient.getImageUrl(post.getImagePath()));
+        intent.putExtra("post_id", post.getId());
+        intent.putExtra("post_image_path", post.getImagePath());
+        startActivity(intent);
+        
+        // 图片会在HomeActivity的handleTryOnIntent中添加到衣橱
     }
 
     private void toggleLike() {
@@ -233,6 +260,13 @@ public class PostDetailActivity extends AppCompatActivity {
                                 post.setLiked(likeResponse.isLiked());
                                 post.setLikeCount(likeResponse.isLiked() ? post.getLikeCount() + 1 : post.getLikeCount() - 1);
                                 updateLikeUI();
+                                
+                                // 如果点赞成功，将帖子图片添加到衣橱
+                                if (likeResponse.isLiked() && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被收藏，则为liked_and_collected，否则为liked_post
+                                    String sourceType = post.isCollected() ? "liked_and_collected" : "liked_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
+                                }
                             }
                         }
                     }
@@ -268,6 +302,13 @@ public class PostDetailActivity extends AppCompatActivity {
                                     post.setCollectCount(Math.max(0, post.getCollectCount() - 1));
                                 }
                                 updateCollectUI();
+                                
+                                // 如果收藏成功，将帖子图片添加到衣橱
+                                if (nowCollected && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被点赞，则为liked_and_collected，否则为collected_post
+                                    String sourceType = post.isLiked() ? "liked_and_collected" : "collected_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
+                                }
                             }
                         }
                     }
@@ -275,6 +316,26 @@ public class PostDetailActivity extends AppCompatActivity {
                     @Override
                     public void onFailure(Call<LikeResponse> call, Throwable t) {
                         Toast.makeText(PostDetailActivity.this, "操作失败", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void addWardrobeItem(String imagePath, String sourceType, Integer postId) {
+        if (currentUserId <= 0) {
+            return;
+        }
+        
+        AddWardrobeItemRequest request = new AddWardrobeItemRequest(currentUserId, imagePath, sourceType, postId);
+        ApiClient.getService().addWardrobeItem(request)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        // 静默处理，不显示提示
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        // 静默处理，不显示提示
                     }
                 });
     }

@@ -23,6 +23,8 @@ import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.PostListResponse;
 import com.example.dresscode1.network.dto.UserInfo;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
+import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.utils.UserPrefs;
 
 import java.util.List;
@@ -329,6 +331,13 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
                                 }
                                 
                                 postAdapter.updatePost(position, post);
+                                
+                                // 如果点赞成功，将帖子图片添加到衣橱
+                                if (likeResponse.isLiked() && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被收藏，则为liked_and_collected，否则为liked_post
+                                    String sourceType = post.isCollected() ? "liked_and_collected" : "liked_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
+                                }
                             }
                         }
                     }
@@ -364,15 +373,23 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
                             LikeResponse collectResponse = response.body();
                             if (collectResponse.isOk()) {
                                 boolean wasCollected = post.isCollected();
-                                post.setCollected(collectResponse.isCollected());
+                                boolean nowCollected = collectResponse.isCollected();
+                                post.setCollected(nowCollected);
                                 
-                                if (collectResponse.isCollected() && !wasCollected) {
+                                if (nowCollected && !wasCollected) {
                                     post.setCollectCount(post.getCollectCount() + 1);
-                                } else if (!collectResponse.isCollected() && wasCollected) {
+                                } else if (!nowCollected && wasCollected) {
                                     post.setCollectCount(Math.max(0, post.getCollectCount() - 1));
                                 }
                                 
                                 postAdapter.updatePost(position, post);
+                                
+                                // 如果收藏成功，将帖子图片添加到衣橱
+                                if (nowCollected && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被点赞，则为liked_and_collected，否则为collected_post
+                                    String sourceType = post.isLiked() ? "liked_and_collected" : "collected_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
+                                }
                             }
                         }
                     }
@@ -380,6 +397,26 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
                     @Override
                     public void onFailure(Call<LikeResponse> call, Throwable t) {
                         Toast.makeText(UserProfileActivity.this, "操作失败", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void addWardrobeItem(String imagePath, String sourceType, Integer postId) {
+        if (currentUserId <= 0) {
+            return;
+        }
+        
+        AddWardrobeItemRequest request = new AddWardrobeItemRequest(currentUserId, imagePath, sourceType, postId);
+        ApiClient.getService().addWardrobeItem(request)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        // 静默处理，不显示提示
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        // 静默处理，不显示提示
                     }
                 });
     }

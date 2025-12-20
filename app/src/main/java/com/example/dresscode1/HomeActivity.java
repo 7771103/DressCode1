@@ -19,12 +19,14 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.util.Log;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.widget.NestedScrollView;
 import androidx.constraintlayout.widget.ConstraintLayout;
 
@@ -39,6 +41,8 @@ import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
 import com.example.dresscode1.adapter.PostAdapter;
 import com.example.dresscode1.adapter.MessageAdapter;
+import com.example.dresscode1.adapter.WardrobeItemAdapter;
+import com.example.dresscode1.adapter.UserPhotoAdapter;
 import com.example.dresscode1.FollowListActivity;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Comment;
@@ -59,9 +63,20 @@ import java.util.List;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
 import com.example.dresscode1.network.dto.UserInfo;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.TryOnRequest;
+import com.example.dresscode1.network.dto.TryOnResponse;
+import com.example.dresscode1.network.dto.WardrobeItem;
+import com.example.dresscode1.network.dto.WardrobeItemListResponse;
+import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
+import com.example.dresscode1.network.dto.BaseResponse;
+import com.example.dresscode1.network.dto.UploadUserPhotoResponse;
+import com.example.dresscode1.network.dto.UserPhoto;
+import com.example.dresscode1.network.dto.UserPhotoListResponse;
 import com.example.dresscode1.utils.UserPrefs;
 import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.button.MaterialButton;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -90,7 +105,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvTitle;
     private RecyclerView rvPosts;
     private ConstraintLayout svAgent;
-    private NestedScrollView svWardrobe;
+    private ConstraintLayout svWardrobe;
     private NestedScrollView svProfile;
     
     // 对话相关视图
@@ -114,6 +129,31 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tabMyLikes;
     private TextView tabMyCollections;
     private RecyclerView rvMyPosts;
+    
+    // 衣橱相关视图
+    private RecyclerView rvWardrobeItems;
+    private RecyclerView rvUserPhotos;
+    private MaterialButton btnConfirmTryOn;
+    private androidx.cardview.widget.CardView cardResult;
+    private ImageView ivResultPhoto;
+    private MaterialButton btnSaveResult;
+    
+    // 衣橱相关数据
+    private Uri selectedUserPhotoUri;  // 选中的用户照片
+    private String postImageUrl;
+    private String postImagePath;  // 帖子图片路径（用于API调用）
+    private Integer tryOnPostId;  // 试装关联的帖子ID
+    private WardrobeItem selectedWardrobeItem;  // 选中的衣橱图片
+    private ActivityResultLauncher<Intent> wardrobeImagePickerLauncher;
+    private ActivityResultLauncher<Intent> wardrobeCameraLauncher;
+    private ActivityResultLauncher<Intent> userPhotoImagePickerLauncher;
+    private ActivityResultLauncher<Uri> userPhotoCameraLauncher;
+    private ActivityResultLauncher<String> wardrobePermissionLauncher;
+    private ActivityResultLauncher<String> userPhotoPermissionLauncher;
+    private Uri userPhotoCameraUri;  // 相机拍照的临时URI
+    private WardrobeItemAdapter wardrobeItemAdapter;
+    private UserPhotoAdapter userPhotoAdapter;
+    private java.util.List<Uri> userPhotoUris = new java.util.ArrayList<>();
     
     private PostAdapter postAdapter;
     private PostAdapter myPostAdapter;
@@ -166,7 +206,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         setupEditProfileLauncher();
         setupImagePicker();
         setupDialogImagePicker();
+        setupWardrobeImagePicker();
         loadPosts();
+        loadUserPhotos();
+        
+        // 检查是否从帖子详情页跳转过来
+        handleTryOnIntent();
     }
     
     private void setupImagePicker() {
@@ -187,6 +232,376 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                     }
                 }
         );
+    }
+    
+    private void setupWardrobeImagePicker() {
+        // 衣橱图片选择器（用于添加到衣橱）
+        wardrobeImagePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        Uri imageUri = result.getData().getData();
+                        if (imageUri != null) {
+                            // 上传图片并添加到衣橱
+                            uploadImageToWardrobe(imageUri, "gallery", null);
+                        }
+                    }
+                }
+        );
+        
+        // 相机拍照（用于添加到衣橱）
+        wardrobeCameraLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        Uri imageUri = result.getData().getData();
+                        if (imageUri != null) {
+                            // 上传图片并添加到衣橱
+                            uploadImageToWardrobe(imageUri, "camera", null);
+                        }
+                    }
+                }
+        );
+        
+        // 用户照片选择器（用于添加到用户照片列表）
+        userPhotoImagePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        Uri imageUri = result.getData().getData();
+                        if (imageUri != null) {
+                            // 上传到服务器
+                            uploadUserPhoto(imageUri);
+                        }
+                    }
+                }
+        );
+        
+        // 用户照片相机拍照
+        userPhotoCameraLauncher = registerForActivityResult(
+                new ActivityResultContracts.TakePicture(),
+                success -> {
+                    if (success && userPhotoCameraUri != null) {
+                        // 上传到服务器
+                        uploadUserPhoto(userPhotoCameraUri);
+                    }
+                }
+        );
+        
+        wardrobePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                        wardrobeImagePickerLauncher.launch(intent);
+                    } else {
+                        Toast.makeText(this, "需要存储权限才能选择图片", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+        
+        userPhotoPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                        userPhotoImagePickerLauncher.launch(intent);
+                    } else {
+                        Toast.makeText(this, "需要存储权限才能选择图片", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+    }
+    
+    private void showAddImageDialog() {
+        String[] options = {"从相册选择", "拍照"};
+        new AlertDialog.Builder(this)
+                .setTitle("添加图片到衣橱")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        // 从相册选择
+                        String permission = getStoragePermission();
+                        if (ContextCompat.checkSelfPermission(this, permission)
+                                != PackageManager.PERMISSION_GRANTED) {
+                            if (wardrobePermissionLauncher != null) {
+                                wardrobePermissionLauncher.launch(permission);
+                            }
+                        } else {
+                            Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                            // 使用新的ActivityResult API
+                            if (wardrobeImagePickerLauncher != null) {
+                                // 创建一个新的launcher用于添加图片到衣橱
+                                // 这里简化处理，直接使用现有的launcher，但在回调中处理
+                                startActivityForResult(intent, 200);
+                            }
+                        }
+                    } else if (which == 1) {
+                        // 拍照
+                        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                        if (intent.resolveActivity(getPackageManager()) != null) {
+                            startActivityForResult(intent, 201);
+                        } else {
+                            Toast.makeText(this, "无法打开相机", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
+    
+    private void uploadImageToWardrobe(Uri imageUri, String sourceType, Integer postId) {
+        InputStream inputStream = null;
+        ByteArrayOutputStream outputStream = null;
+        try {
+            inputStream = getContentResolver().openInputStream(imageUri);
+            if (inputStream == null) {
+                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // 使用 ByteArrayOutputStream 安全地读取图片数据
+            outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            byte[] imageBytes = outputStream.toByteArray();
+
+            String mimeType = getContentResolver().getType(imageUri);
+            String extension = "jpg";
+            if (mimeType != null) {
+                if (mimeType.contains("png")) {
+                    extension = "png";
+                } else if (mimeType.contains("jpeg") || mimeType.contains("jpg")) {
+                    extension = "jpg";
+                }
+            }
+
+            RequestBody requestFile = RequestBody.create(
+                    MediaType.parse(mimeType != null ? mimeType : "image/jpeg"),
+                    imageBytes
+            );
+
+            MultipartBody.Part body = MultipartBody.Part.createFormData("file", "wardrobe." + extension, requestFile);
+
+            // 先上传图片
+            ApiClient.getService().uploadPostImage(body)
+                    .enqueue(new Callback<UploadPostImageResponse>() {
+                        @Override
+                        public void onResponse(Call<UploadPostImageResponse> call, Response<UploadPostImageResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                UploadPostImageResponse uploadResponse = response.body();
+                                if (uploadResponse.isOk() && uploadResponse.getImagePath() != null) {
+                                    // 添加到衣橱
+                                    addWardrobeItem(uploadResponse.getImagePath(), sourceType, postId);
+                                } else {
+                                    Toast.makeText(HomeActivity.this, "上传失败: " + uploadResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                                }
+                            } else {
+                                Toast.makeText(HomeActivity.this, "上传失败，请重试", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UploadPostImageResponse> call, Throwable t) {
+                            Toast.makeText(HomeActivity.this, "上传失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+        } catch (IOException e) {
+            Log.e("HomeActivity", "读取图片失败", e);
+            Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } catch (SecurityException e) {
+            Log.e("HomeActivity", "权限不足，无法读取图片", e);
+            Toast.makeText(this, "权限不足，无法读取图片", Toast.LENGTH_SHORT).show();
+        } finally {
+            // 确保流被关闭
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输入流失败", e);
+                }
+            }
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输出流失败", e);
+                }
+            }
+        }
+    }
+    
+    private void addWardrobeItem(String imagePath, String sourceType, Integer postId) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        AddWardrobeItemRequest request = new AddWardrobeItemRequest(currentUserId, imagePath, sourceType, postId);
+        ApiClient.getService().addWardrobeItem(request)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BaseResponse baseResponse = response.body();
+                            if (baseResponse.isOk()) {
+                                // 重新加载衣橱图片列表
+                                loadWardrobeItems();
+                            } else {
+                                Toast.makeText(HomeActivity.this, "添加失败: " + baseResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        Toast.makeText(HomeActivity.this, "添加失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void loadWardrobeItems() {
+        if (currentUserId <= 0) {
+            return;
+        }
+        
+        ApiClient.getService().getWardrobeItems(currentUserId)
+                .enqueue(new Callback<WardrobeItemListResponse>() {
+                    @Override
+                    public void onResponse(Call<WardrobeItemListResponse> call, Response<WardrobeItemListResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            WardrobeItemListResponse listResponse = response.body();
+                            if (listResponse.isOk() && listResponse.getData() != null) {
+                                wardrobeItemAdapter.setItems(listResponse.getData());
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<WardrobeItemListResponse> call, Throwable t) {
+                        // 忽略错误
+                    }
+                });
+    }
+    
+    private void loadUserPhotos() {
+        if (currentUserId <= 0) {
+            return;
+        }
+        
+        ApiClient.getService().getUserPhotos(currentUserId)
+                .enqueue(new Callback<UserPhotoListResponse>() {
+                    @Override
+                    public void onResponse(Call<UserPhotoListResponse> call, Response<UserPhotoListResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            UserPhotoListResponse listResponse = response.body();
+                            if (listResponse.isOk() && listResponse.getPhotos() != null) {
+                                // 将服务器返回的照片URL转换为Uri
+                                userPhotoUris.clear();
+                                for (UserPhoto photo : listResponse.getPhotos()) {
+                                    String imageUrl = ApiClient.getBaseUrl().substring(0, ApiClient.getBaseUrl().length() - 1) + photo.getImagePath();
+                                    Uri photoUri = Uri.parse(imageUrl);
+                                    userPhotoUris.add(photoUri);
+                                }
+                                userPhotoAdapter.setPhotos(userPhotoUris);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<UserPhotoListResponse> call, Throwable t) {
+                        // 忽略错误
+                    }
+                });
+    }
+    
+    private void uploadUserPhoto(Uri imageUri) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try (InputStream inputStream = getContentResolver().openInputStream(imageUri);
+             ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            if (inputStream == null) {
+                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            byte[] chunk = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(chunk)) != -1) {
+                buffer.write(chunk, 0, bytesRead);
+            }
+            byte[] imageBytes = buffer.toByteArray();
+
+            String mimeType = getContentResolver().getType(imageUri);
+            String extension = "jpg";
+            if (mimeType != null) {
+                if (mimeType.contains("png")) {
+                    extension = "png";
+                } else if (mimeType.contains("jpeg") || mimeType.contains("jpg")) {
+                    extension = "jpg";
+                } else if (mimeType.contains("gif")) {
+                    extension = "gif";
+                } else if (mimeType.contains("webp")) {
+                    extension = "webp";
+                }
+            }
+
+            RequestBody requestFile = RequestBody.create(
+                    MediaType.parse(mimeType != null ? mimeType : "image/jpeg"),
+                    imageBytes
+            );
+
+            MultipartBody.Part body = MultipartBody.Part.createFormData("file", "user_photo." + extension, requestFile);
+
+            // 上传用户照片
+            Log.d("HomeActivity", "开始上传用户照片，大小: " + imageBytes.length + " bytes");
+            ApiClient.getService().uploadUserPhoto(currentUserId, body)
+                    .enqueue(new Callback<UploadUserPhotoResponse>() {
+                        @Override
+                        public void onResponse(Call<UploadUserPhotoResponse> call, Response<UploadUserPhotoResponse> response) {
+                            Log.d("HomeActivity", "上传响应 - 状态码: " + response.code() + ", 成功: " + response.isSuccessful());
+                            if (response.isSuccessful() && response.body() != null) {
+                                UploadUserPhotoResponse uploadResponse = response.body();
+                                Log.d("HomeActivity", "响应体 - ok: " + uploadResponse.isOk() + ", msg: " + uploadResponse.getMsg());
+                                if (uploadResponse.isOk() && uploadResponse.getPhoto() != null) {
+                                    // 上传成功，重新加载照片列表
+                                    Log.d("HomeActivity", "照片上传成功，ID: " + uploadResponse.getPhoto().getId());
+                                    loadUserPhotos();
+                                    Toast.makeText(HomeActivity.this, "照片上传成功", Toast.LENGTH_SHORT).show();
+                                } else {
+                                    String errorMsg = uploadResponse.getMsg() != null ? uploadResponse.getMsg() : "上传失败";
+                                    Log.e("HomeActivity", "上传失败: " + errorMsg);
+                                    Toast.makeText(HomeActivity.this, errorMsg, Toast.LENGTH_SHORT).show();
+                                }
+                            } else {
+                                String errorBody = "";
+                                try {
+                                    if (response.errorBody() != null) {
+                                        errorBody = response.errorBody().string();
+                                    }
+                                } catch (Exception e) {
+                                    // ignore
+                                }
+                                Log.e("HomeActivity", "上传失败 - 状态码: " + response.code() + ", 错误: " + errorBody);
+                                Toast.makeText(HomeActivity.this, "上传失败: " + response.code(), Toast.LENGTH_SHORT).show();
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UploadUserPhotoResponse> call, Throwable t) {
+                            Log.e("HomeActivity", "上传失败异常", t);
+                            Toast.makeText(HomeActivity.this, "上传失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+        } catch (IOException e) {
+            Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
     
     private void setupDialogImagePicker() {
@@ -297,6 +712,54 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabMyLikes = findViewById(R.id.tabMyLikes);
         tabMyCollections = findViewById(R.id.tabMyCollections);
         rvMyPosts = findViewById(R.id.rvMyPosts);
+        
+        // 衣橱相关视图
+        rvWardrobeItems = findViewById(R.id.rvWardrobeItems);
+        rvUserPhotos = findViewById(R.id.rvUserPhotos);
+        btnConfirmTryOn = findViewById(R.id.btnConfirmTryOn);
+        cardResult = findViewById(R.id.cardResult);
+        ivResultPhoto = findViewById(R.id.ivResultPhoto);
+        btnSaveResult = findViewById(R.id.btnSaveResult);
+        
+        // 初始化衣橱图片RecyclerView
+        wardrobeItemAdapter = new WardrobeItemAdapter(
+            (item, position) -> {
+                // 选中图片
+                selectedWardrobeItem = item;
+                wardrobeItemAdapter.setSelectedPosition(position);
+                // 如果已经选中了用户照片，显示合成按钮
+                if (selectedUserPhotoUri != null) {
+                    btnConfirmTryOn.setVisibility(View.VISIBLE);
+                }
+            },
+            () -> {
+                // 加号按钮点击
+                showAddImageDialog();
+            }
+        );
+        LinearLayoutManager wardrobeLayoutManager = new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false);
+        rvWardrobeItems.setLayoutManager(wardrobeLayoutManager);
+        rvWardrobeItems.setAdapter(wardrobeItemAdapter);
+        
+        // 初始化用户照片RecyclerView
+        userPhotoAdapter = new UserPhotoAdapter(
+            (photoUri, position) -> {
+                // 选中用户照片
+                selectedUserPhotoUri = photoUri;
+                userPhotoAdapter.setSelectedPosition(position);
+                // 如果已经选中了衣橱图片，显示合成按钮
+                if (selectedWardrobeItem != null) {
+                    btnConfirmTryOn.setVisibility(View.VISIBLE);
+                }
+            },
+            () -> {
+                // 加号按钮点击 - 添加用户照片
+                showAddUserPhotoDialog();
+            }
+        );
+        LinearLayoutManager userPhotoLayoutManager = new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false);
+        rvUserPhotos.setLayoutManager(userPhotoLayoutManager);
+        rvUserPhotos.setAdapter(userPhotoAdapter);
     }
 
     private void initState() {
@@ -392,6 +855,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabMyPosts.setOnClickListener(v -> switchProfileTab("posts"));
         tabMyLikes.setOnClickListener(v -> switchProfileTab("likes"));
         tabMyCollections.setOnClickListener(v -> switchProfileTab("collections"));
+        
+        // 衣橱相关操作
+        btnConfirmTryOn.setOnClickListener(v -> confirmTryOn());
+        btnSaveResult.setOnClickListener(v -> saveResult());
         
         // 点击关注数区域，跳转到关注列表
         findViewById(R.id.llFollowing).setOnClickListener(v -> {
@@ -613,6 +1080,372 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svAgent.setVisibility(View.GONE);
         svWardrobe.setVisibility(View.VISIBLE);
         svProfile.setVisibility(View.GONE);
+        
+        // 先同步点赞和收藏的帖子到衣橱，然后加载衣橱图片列表
+        syncWardrobeFromPosts();
+    }
+    
+    private void syncWardrobeFromPosts() {
+        if (currentUserId <= 0) {
+            loadWardrobeItems();
+            return;
+        }
+        
+        // 调用同步接口，将点赞和收藏的帖子同步到衣橱
+        LikeRequest request = new LikeRequest(currentUserId);
+        ApiClient.getService().syncWardrobeFromPosts(request)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        // 无论同步成功与否，都加载衣橱列表
+                        loadWardrobeItems();
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        // 同步失败也继续加载衣橱列表
+                        loadWardrobeItems();
+                    }
+                });
+    }
+    
+    private void handleTryOnIntent() {
+        Intent intent = getIntent();
+        if (intent != null && "try_on".equals(intent.getStringExtra("action"))) {
+            postImageUrl = intent.getStringExtra("post_image_url");
+            postImagePath = intent.getStringExtra("post_image_path");
+            tryOnPostId = intent.getIntExtra("post_id", -1);
+            if (tryOnPostId == -1) {
+                tryOnPostId = null;
+            }
+            if (postImagePath != null && !postImagePath.isEmpty()) {
+                // 切换到衣橱页面
+                switchToWardrobe();
+                // 将图片添加到衣橱（如果还没有）
+                if (currentUserId > 0) {
+                    addWardrobeItem(postImagePath, "post_try", tryOnPostId);
+                }
+                // 选中这个图片
+                loadWardrobeItems();
+                // 延迟选中，等待图片加载完成
+                rvWardrobeItems.postDelayed(() -> {
+                    if (wardrobeItemAdapter.getItemCount() > 1) {
+                        // 找到对应的item并选中
+                        // 这里简化处理，直接选中第一个（最新添加的，位置是0）
+                        wardrobeItemAdapter.setSelectedPosition(0);
+                        selectedWardrobeItem = wardrobeItemAdapter.getSelectedItem();
+                        rvWardrobeItems.scrollToPosition(1); // RecyclerView位置是1（0是加号按钮）
+                        // 如果已经选中了用户照片，显示合成按钮
+                        if (selectedUserPhotoUri != null) {
+                            btnConfirmTryOn.setVisibility(View.VISIBLE);
+                        }
+                    }
+                }, 500);
+            }
+        }
+    }
+    
+    private void showAddUserPhotoDialog() {
+        String[] options = {"从相册选择", "拍照"};
+        new AlertDialog.Builder(this)
+                .setTitle("添加您的照片")
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        // 从相册选择
+                        String permission = getStoragePermission();
+                        if (ContextCompat.checkSelfPermission(this, permission)
+                                != PackageManager.PERMISSION_GRANTED) {
+                            if (userPhotoPermissionLauncher != null) {
+                                userPhotoPermissionLauncher.launch(permission);
+                            }
+                        } else {
+                            Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                            if (userPhotoImagePickerLauncher != null) {
+                                userPhotoImagePickerLauncher.launch(intent);
+                            }
+                        }
+                    } else if (which == 1) {
+                        // 拍照
+                        try {
+                            // 创建临时文件用于保存相机拍摄的照片
+                            java.io.File photoFile = new java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES), "user_photo_" + System.currentTimeMillis() + ".jpg");
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                userPhotoCameraUri = androidx.core.content.FileProvider.getUriForFile(
+                                        this,
+                                        getPackageName() + ".fileprovider",
+                                        photoFile
+                                );
+                            } else {
+                                userPhotoCameraUri = Uri.fromFile(photoFile);
+                            }
+                            if (userPhotoCameraLauncher != null) {
+                                userPhotoCameraLauncher.launch(userPhotoCameraUri);
+                            }
+                        } catch (Exception e) {
+                            Toast.makeText(this, "无法创建临时文件: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
+    private void confirmTryOn() {
+        if (selectedUserPhotoUri == null) {
+            Toast.makeText(this, "请先选择您的照片", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (selectedWardrobeItem == null) {
+            Toast.makeText(this, "请先选择要试穿的衣服", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 显示加载提示
+        Toast.makeText(this, "正在上传照片，请稍候...", Toast.LENGTH_SHORT).show();
+        btnConfirmTryOn.setEnabled(false);
+        btnConfirmTryOn.setText("上传中...");
+        
+        // 先上传用户照片
+        uploadUserPhotoForTryOn();
+    }
+    
+    private void uploadUserPhotoForTryOn() {
+        String scheme = selectedUserPhotoUri.getScheme();
+        
+        // 如果 URI 是 HTTP 或 HTTPS URL（图片已在服务器上），直接提取路径
+        if ("http".equals(scheme) || "https".equals(scheme)) {
+            String imageUrl = selectedUserPhotoUri.toString();
+            String baseUrl = ApiClient.getBaseUrl();
+            // 移除 baseUrl 末尾的斜杠
+            String baseUrlWithoutSlash = baseUrl.endsWith("/") 
+                    ? baseUrl.substring(0, baseUrl.length() - 1) 
+                    : baseUrl;
+            
+            // 从完整 URL 中提取路径部分
+            String imagePath = null;
+            if (imageUrl.startsWith(baseUrlWithoutSlash)) {
+                imagePath = imageUrl.substring(baseUrlWithoutSlash.length());
+            } else if (imageUrl.startsWith(baseUrl)) {
+                // 如果 baseUrl 有斜杠，也尝试匹配
+                imagePath = imageUrl.substring(baseUrl.length());
+            } else {
+                // 如果 URL 不匹配 baseUrl，尝试从 URL 中提取路径（从 /static/ 开始）
+                try {
+                    int pathIndex = imageUrl.indexOf("/static/");
+                    if (pathIndex >= 0) {
+                        imagePath = imageUrl.substring(pathIndex);
+                    } else {
+                        // 如果找不到 /static/，尝试提取 URI 的路径部分
+                        String path = selectedUserPhotoUri.getPath();
+                        if (path != null && !path.isEmpty()) {
+                            imagePath = path;
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e("HomeActivity", "提取图片路径失败", e);
+                }
+            }
+            
+            if (imagePath != null && !imagePath.isEmpty()) {
+                // 确保路径以 / 开头
+                if (!imagePath.startsWith("/")) {
+                    imagePath = "/" + imagePath;
+                }
+                // 图片已在服务器上，直接使用路径
+                Log.d("HomeActivity", "使用服务器上的图片路径: " + imagePath);
+                callTryOnAPI(imagePath);
+                return;
+            } else {
+                Log.e("HomeActivity", "无法从 URL 提取图片路径: " + imageUrl);
+                Toast.makeText(this, "无法识别图片路径", Toast.LENGTH_SHORT).show();
+                btnConfirmTryOn.setEnabled(true);
+                btnConfirmTryOn.setText("确认合成");
+                return;
+            }
+        }
+        
+        // 如果是本地 URI，需要上传
+        InputStream inputStream = null;
+        ByteArrayOutputStream outputStream = null;
+        try {
+            // 从 URI 获取输入流
+            inputStream = getContentResolver().openInputStream(selectedUserPhotoUri);
+            if (inputStream == null) {
+                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show();
+                btnConfirmTryOn.setEnabled(true);
+                btnConfirmTryOn.setText("确认合成");
+                return;
+            }
+
+            // 使用 ByteArrayOutputStream 安全地读取图片数据
+            outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            byte[] imageBytes = outputStream.toByteArray();
+
+            // 获取文件扩展名
+            String mimeType = getContentResolver().getType(selectedUserPhotoUri);
+            String extension = "jpg";
+            if (mimeType != null) {
+                if (mimeType.contains("png")) {
+                    extension = "png";
+                } else if (mimeType.contains("jpeg") || mimeType.contains("jpg")) {
+                    extension = "jpg";
+                } else if (mimeType.contains("gif")) {
+                    extension = "gif";
+                } else if (mimeType.contains("webp")) {
+                    extension = "webp";
+                }
+            }
+
+            // 创建 RequestBody
+            RequestBody requestFile = RequestBody.create(
+                    MediaType.parse(mimeType != null ? mimeType : "image/jpeg"),
+                    imageBytes
+            );
+
+            // 创建 MultipartBody.Part
+            MultipartBody.Part body = MultipartBody.Part.createFormData("file", "user_photo." + extension, requestFile);
+
+            // 上传用户照片
+            btnConfirmTryOn.setText("上传中...");
+            ApiClient.getService().uploadPostImage(body)
+                    .enqueue(new Callback<UploadPostImageResponse>() {
+                        @Override
+                        public void onResponse(Call<UploadPostImageResponse> call, Response<UploadPostImageResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                UploadPostImageResponse uploadResponse = response.body();
+                                if (uploadResponse.isOk() && uploadResponse.getImagePath() != null) {
+                                    // 上传成功，调用换装API
+                                    String userImagePath = uploadResponse.getImagePath();
+                                    callTryOnAPI(userImagePath);
+                                } else {
+                                    Toast.makeText(HomeActivity.this, "上传失败: " + uploadResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                                    btnConfirmTryOn.setEnabled(true);
+                                    btnConfirmTryOn.setText("确认合成");
+                                }
+                            } else {
+                                Toast.makeText(HomeActivity.this, "上传失败，请重试", Toast.LENGTH_SHORT).show();
+                                btnConfirmTryOn.setEnabled(true);
+                                btnConfirmTryOn.setText("确认合成");
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UploadPostImageResponse> call, Throwable t) {
+                            Toast.makeText(HomeActivity.this, "上传失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                            btnConfirmTryOn.setEnabled(true);
+                            btnConfirmTryOn.setText("确认合成");
+                        }
+                    });
+        } catch (IOException e) {
+            Log.e("HomeActivity", "读取图片失败", e);
+            Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            btnConfirmTryOn.setEnabled(true);
+            btnConfirmTryOn.setText("确认合成");
+        } catch (SecurityException e) {
+            Log.e("HomeActivity", "权限不足，无法读取图片", e);
+            Toast.makeText(this, "权限不足，无法读取图片", Toast.LENGTH_SHORT).show();
+            btnConfirmTryOn.setEnabled(true);
+            btnConfirmTryOn.setText("确认合成");
+        } finally {
+            // 确保流被关闭
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输入流失败", e);
+                }
+            }
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输出流失败", e);
+                }
+            }
+        }
+    }
+    
+    private void callTryOnAPI(String userImagePath) {
+        btnConfirmTryOn.setText("合成中...");
+        Toast.makeText(this, "正在合成，请稍候...", Toast.LENGTH_SHORT).show();
+        
+        // 使用选中的衣橱图片 - 优先使用 imagePath，如果为空则使用 postImagePath
+        String clothingImagePath = selectedWardrobeItem.getImagePath();
+        if (clothingImagePath == null || clothingImagePath.isEmpty()) {
+            clothingImagePath = selectedWardrobeItem.getPostImagePath();
+        }
+        Integer postId = selectedWardrobeItem.getPostId();
+        
+        // 构建换装请求
+        TryOnRequest request = new TryOnRequest(
+                currentUserId,
+                userImagePath,
+                clothingImagePath,
+                postId
+        );
+        
+        // 调用换装API
+        ApiClient.getService().tryOn(request)
+                .enqueue(new Callback<TryOnResponse>() {
+                    @Override
+                    public void onResponse(Call<TryOnResponse> call, Response<TryOnResponse> response) {
+                        btnConfirmTryOn.setEnabled(true);
+                        btnConfirmTryOn.setText("确认合成");
+                        
+                        if (response.isSuccessful() && response.body() != null) {
+                            TryOnResponse tryOnResponse = response.body();
+                            if (tryOnResponse.isOk() && tryOnResponse.getData() != null) {
+                                // 换装成功，显示结果
+                                String resultImagePath = tryOnResponse.getData().getResultImagePath();
+                                if (resultImagePath != null && !resultImagePath.isEmpty()) {
+                                    String resultImageUrl = ApiClient.getImageUrl(resultImagePath);
+                                    Glide.with(HomeActivity.this)
+                                            .load(resultImageUrl)
+                                            .centerCrop()
+                                            .placeholder(android.R.drawable.ic_menu_gallery)
+                                            .error(android.R.drawable.ic_menu_report_image)
+                                            .into(ivResultPhoto);
+                                    cardResult.setVisibility(View.VISIBLE);
+                                    Toast.makeText(HomeActivity.this, "合成完成！", Toast.LENGTH_SHORT).show();
+                                } else {
+                                    Toast.makeText(HomeActivity.this, "合成结果为空", Toast.LENGTH_SHORT).show();
+                                }
+                            } else {
+                                Toast.makeText(HomeActivity.this, "合成失败: " + tryOnResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(HomeActivity.this, "合成失败，请重试", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<TryOnResponse> call, Throwable t) {
+                        btnConfirmTryOn.setEnabled(true);
+                        btnConfirmTryOn.setText("确认合成");
+                        Toast.makeText(HomeActivity.this, "合成失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void saveResult() {
+        if (ivResultPhoto.getDrawable() == null) {
+            Toast.makeText(this, "没有合成结果可保存", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // TODO: 实现保存合成结果到相册的功能
+        Toast.makeText(this, "保存功能开发中...", Toast.LENGTH_SHORT).show();
     }
 
     private void switchToProfile() {
@@ -963,18 +1796,24 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
     
     private void uploadPostImageAndCreatePost(Uri imageUri, String content) {
+        InputStream inputStream = null;
+        ByteArrayOutputStream outputStream = null;
         try {
             // 从 URI 获取输入流
-            InputStream inputStream = getContentResolver().openInputStream(imageUri);
+            inputStream = getContentResolver().openInputStream(imageUri);
             if (inputStream == null) {
                 Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            // 读取图片数据
-            byte[] imageBytes = new byte[inputStream.available()];
-            inputStream.read(imageBytes);
-            inputStream.close();
+            // 使用 ByteArrayOutputStream 安全地读取图片数据
+            outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            byte[] imageBytes = outputStream.toByteArray();
 
             // 获取文件扩展名
             String mimeType = getContentResolver().getType(imageUri);
@@ -1024,7 +1863,27 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         }
                     });
         } catch (IOException e) {
+            Log.e("HomeActivity", "读取图片失败", e);
             Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } catch (SecurityException e) {
+            Log.e("HomeActivity", "权限不足，无法读取图片", e);
+            Toast.makeText(this, "权限不足，无法读取图片", Toast.LENGTH_SHORT).show();
+        } finally {
+            // 确保流被关闭
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输入流失败", e);
+                }
+            }
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                } catch (IOException e) {
+                    Log.e("HomeActivity", "关闭输出流失败", e);
+                }
+            }
         }
     }
     
@@ -1206,6 +2065,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 post.setLiked(likeResponse.isLiked());
                                 post.setLikeCount(likeResponse.isLiked() ? post.getLikeCount() + 1 : post.getLikeCount() - 1);
                                 
+                                // 如果点赞成功，将帖子图片添加到衣橱
+                                if (likeResponse.isLiked() && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被收藏，则为liked_and_collected，否则为liked_post
+                                    String sourceType = post.isCollected() ? "liked_and_collected" : "liked_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
+                                }
+                                
                                 if (currentTab.equals("home")) {
                                     postAdapter.updatePost(position, post);
                                 } else if (currentTab.equals("profile")) {
@@ -1280,6 +2146,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 } else if (!nowCollected && wasCollected) {
                                     // 从已收藏变为未收藏，数量-1
                                     post.setCollectCount(Math.max(0, post.getCollectCount() - 1));
+                                }
+                                
+                                // 如果收藏成功，将帖子图片添加到衣橱
+                                if (nowCollected && post.getImagePath() != null && !post.getImagePath().isEmpty()) {
+                                    // 判断source_type：如果同时被点赞，则为liked_and_collected，否则为collected_post
+                                    String sourceType = post.isLiked() ? "liked_and_collected" : "collected_post";
+                                    addWardrobeItem(post.getImagePath(), sourceType, post.getId());
                                 }
                                 
                                 if (currentTab.equals("home")) {

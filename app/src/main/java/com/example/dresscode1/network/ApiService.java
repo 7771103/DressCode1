@@ -20,12 +20,21 @@ import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.network.dto.UserListResponse;
 import com.example.dresscode1.network.dto.UploadAvatarResponse;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
+import com.example.dresscode1.network.dto.UploadUserPhotoResponse;
+import com.example.dresscode1.network.dto.UserPhotoListResponse;
 import com.example.dresscode1.network.dto.ChatRequest;
 import com.example.dresscode1.network.dto.ChatResponse;
+import com.example.dresscode1.network.dto.TryOnRequest;
+import com.example.dresscode1.network.dto.TryOnResponse;
+import com.example.dresscode1.network.dto.TryOnHistoryResponse;
+import com.example.dresscode1.network.dto.WardrobeItemListResponse;
+import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
+import com.example.dresscode1.network.dto.BaseResponse;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
 import retrofit2.http.Body;
+import retrofit2.http.DELETE;
 import retrofit2.http.GET;
 import retrofit2.http.Headers;
 import retrofit2.http.Multipart;
@@ -182,5 +191,53 @@ public interface ApiService {
     @Headers("Content-Type: application/json")
     @POST("/api/chat")
     Call<ChatResponse> sendChatMessage(@Body ChatRequest request);
+
+    // 虚拟试衣
+    @Headers("Content-Type: application/json")
+    @POST("/api/try-on")
+    Call<TryOnResponse> tryOn(@Body TryOnRequest request);
+
+    // 获取试装历史记录
+    @GET("/api/try-on/history")
+    Call<TryOnHistoryResponse> getTryOnHistory(
+            @Query("user_id") int userId,
+            @Query("page") int page,
+            @Query("page_size") int pageSize
+    );
+
+    // 获取衣橱图片列表
+    @GET("/api/wardrobe/items")
+    Call<WardrobeItemListResponse> getWardrobeItems(
+            @Query("user_id") int userId
+    );
+
+    // 添加衣橱图片
+    @Headers("Content-Type: application/json")
+    @POST("/api/wardrobe/items")
+    Call<BaseResponse> addWardrobeItem(@Body AddWardrobeItemRequest request);
+
+    // 同步点赞和收藏的帖子到衣橱
+    @Headers("Content-Type: application/json")
+    @POST("/api/wardrobe/sync")
+    Call<BaseResponse> syncWardrobeFromPosts(@Body LikeRequest request);
+
+    // 上传用户照片
+    @Multipart
+    @POST("/api/user/{userId}/photos")
+    Call<UploadUserPhotoResponse> uploadUserPhoto(
+            @Path("userId") int userId,
+            @Part MultipartBody.Part file
+    );
+
+    // 获取用户照片列表
+    @GET("/api/user/{userId}/photos")
+    Call<UserPhotoListResponse> getUserPhotos(@Path("userId") int userId);
+
+    // 删除用户照片
+    @DELETE("/api/user/{userId}/photos/{photoId}")
+    Call<BaseResponse> deleteUserPhoto(
+            @Path("userId") int userId,
+            @Path("photoId") int photoId
+    );
 }
 
