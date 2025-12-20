@@ -8,7 +8,28 @@ import pymysql
 import re
 import os
 import json
+import requests
 from datetime import datetime
+from dotenv import load_dotenv
+import logging
+
+# 加载.env文件中的环境变量
+load_dotenv()
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 导入智能体模块
+try:
+    from agent import DressCodeAgent
+except ImportError:
+    # 如果导入失败，可能是相对导入问题，尝试绝对导入
+    import sys
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    if backend_dir not in sys.path:
+        sys.path.insert(0, backend_dir)
+    from agent import DressCodeAgent
 
 
 def create_app():
@@ -607,16 +628,125 @@ def create_app():
     @app.route("/api/weather", methods=["GET"])
     def get_weather():
         city = request.args.get("city", "北京")
-        # 模拟天气数据，实际应该调用天气API
-        weather_data = {
-            "city": city,
-            "temperature": 25,
-            "condition": "晴朗",
-            "icon": "☀️"
-        }
-        return jsonify({"ok": True, "data": weather_data}), 200
+        location = request.args.get("location")  # 可选：经纬度，格式：经度,纬度
+        
+        # 从环境变量获取和风天气API Key
+        qweather_key = os.environ.get("QWEATHER_API_KEY", "")
+        
+        if not qweather_key:
+            # 如果没有配置API Key，返回模拟数据
+            weather_data = {
+                "city": city,
+                "temperature": 25,
+                "condition": "晴朗",
+                "icon": "☀️",
+                "humidity": 60,
+                "windSpeed": "5km/h",
+                "windDir": "东北风"
+            }
+            return jsonify({"ok": True, "data": weather_data, "msg": "未配置和风天气API Key，返回模拟数据"}), 200
+        
+        try:
+            # 和风天气API基础URL
+            base_url = "https://devapi.qweather.com/v7"
+            
+            # 第一步：根据城市名称获取位置信息（如果提供了经纬度则跳过）
+            location_id = None
+            if location:
+                # 如果提供了经纬度，直接使用
+                lon, lat = location.split(",")
+                location_id = f"{lon},{lat}"
+            else:
+                # 通过城市名称搜索位置
+                search_url = f"{base_url}/city/lookup"
+                search_params = {
+                    "location": city,
+                    "key": qweather_key,
+                    "lang": "zh"
+                }
+                search_response = requests.get(search_url, params=search_params, timeout=10)
+                search_data = search_response.json()
+                
+                if search_data.get("code") == "200" and search_data.get("location"):
+                    location_id = search_data["location"][0]["id"]
+                else:
+                    return jsonify({"ok": False, "msg": f"未找到城市：{city}"}), 404
+            
+            # 第二步：获取实时天气
+            weather_url = f"{base_url}/weather/now"
+            weather_params = {
+                "location": location_id,
+                "key": qweather_key,
+                "lang": "zh"
+            }
+            weather_response = requests.get(weather_url, params=weather_params, timeout=10)
+            weather_data = weather_response.json()
+            
+            if weather_data.get("code") != "200":
+                return jsonify({"ok": False, "msg": f"获取天气失败：{weather_data.get('code', '未知错误')}"}), 500
+            
+            now = weather_data.get("now", {})
+            
+            # 第三步：获取3天天气预报（可选）
+            forecast_url = f"{base_url}/weather/3d"
+            forecast_params = {
+                "location": location_id,
+                "key": qweather_key,
+                "lang": "zh"
+            }
+            forecast_response = requests.get(forecast_url, params=forecast_params, timeout=10)
+            forecast_data = forecast_response.json()
+            
+            # 构建返回数据
+            result = {
+                "city": city,
+                "locationId": location_id,
+                "temperature": now.get("temp", "N/A"),
+                "feelsLike": now.get("feelsLike", "N/A"),
+                "condition": now.get("text", "未知"),
+                "icon": now.get("icon", ""),
+                "humidity": now.get("humidity", "N/A"),
+                "windSpeed": now.get("windSpeed", "N/A"),
+                "windDir": now.get("windDir", "N/A"),
+                "pressure": now.get("pressure", "N/A"),
+                "vis": now.get("vis", "N/A"),
+                "updateTime": now.get("obsTime", "")
+            }
+            
+            # 添加3天预报（如果获取成功）
+            if forecast_data.get("code") == "200" and forecast_data.get("daily"):
+                result["forecast"] = []
+                for day in forecast_data["daily"][:3]:  # 只取前3天
+                    result["forecast"].append({
+                        "date": day.get("fxDate", ""),
+                        "tempMax": day.get("tempMax", ""),
+                        "tempMin": day.get("tempMin", ""),
+                        "textDay": day.get("textDay", ""),
+                        "textNight": day.get("textNight", ""),
+                        "iconDay": day.get("iconDay", "")
+                    })
+            
+            return jsonify({"ok": True, "data": result}), 200
+            
+        except requests.exceptions.Timeout:
+            return jsonify({"ok": False, "msg": "请求超时，请稍后重试"}), 504
+        except requests.exceptions.RequestException as e:
+            return jsonify({"ok": False, "msg": f"网络请求失败：{str(e)}"}), 500
+        except Exception as e:
+            app.logger.error(f"获取天气信息失败：{str(e)}")
+            return jsonify({"ok": False, "msg": f"获取天气信息失败：{str(e)}"}), 500
 
-    # AI对话接口
+    # 初始化智能体（延迟初始化，在第一次使用时创建）
+    agent = None
+    
+    def get_agent():
+        """获取智能体实例（单例模式）"""
+        nonlocal agent
+        if agent is None:
+            agent = DressCodeAgent(db, Post, User)
+        return agent
+    
+    # AI对话接口 - 集成MCP+RAG+LLM智能体
     @app.route("/api/chat", methods=["POST"])
     def chat():
         data = request.get_json(silent=True) or {}
@@ -629,33 +759,48 @@ def create_app():
         if not message:
             return jsonify({"ok": False, "msg": "消息内容不能为空"}), 400
         
-        # 简单的AI回复逻辑（实际应该调用AI模型）
-        # 这里可以根据消息内容生成回复
-        response_text = generate_ai_response(message, history)
-        
-        return jsonify({
-            "ok": True,
-            "data": {
-                "role": "assistant",
-                "content": response_text
+        try:
+            # 使用智能体处理查询
+            agent_instance = get_agent()
+            result = agent_instance.process_query(
+                user_id=user_id,
+                message=message,
+                history=history
+            )
+            
+            # 构建返回数据
+            response_data = {
+                "role": result.get("role", "assistant"),
+                "content": result.get("content", ""),
             }
-        }), 200
-
-    def generate_ai_response(message, history):
-        """生成AI回复（简单版本，实际应该调用AI模型）"""
-        message_lower = message.lower()
-        
-        # 简单的关键词匹配回复
-        if any(word in message_lower for word in ["穿搭", "搭配", "衣服"]):
-            return "我可以帮你推荐穿搭！你可以告诉我你的场合需求，比如：工作、约会、休闲等，我会为你推荐合适的搭配方案。"
-        elif any(word in message_lower for word in ["颜色", "色彩"]):
-            return "颜色搭配很重要！建议选择相近色系或对比色系。比如：蓝色配白色、黑色配白色都是经典搭配。"
-        elif any(word in message_lower for word in ["风格", "类型"]):
-            return "常见的穿搭风格有：休闲风、商务风、运动风、甜美风等。你想了解哪种风格呢？"
-        elif any(word in message_lower for word in ["你好", "hello", "hi"]):
-            return "你好！我是你的穿搭智能助手，可以为你提供穿搭建议、搭配推荐等服务。有什么可以帮助你的吗？"
-        else:
-            return "感谢你的提问！关于穿搭，我可以为你提供以下帮助：\n1. 搭配建议\n2. 颜色推荐\n3. 风格指导\n4. 场合穿搭\n\n请告诉我你的具体需求吧！"
+            
+            # 如果有时气信息，添加到返回数据
+            if result.get("weather"):
+                response_data["weather"] = result["weather"]
+            
+            # 如果有推荐帖子，添加到返回数据
+            if result.get("posts"):
+                response_data["posts"] = result["posts"]
+                # 为每个帖子生成前端可用的链接
+                for post in response_data["posts"]:
+                    post["link"] = f"/api/posts/{post['id']}"
+            
+            return jsonify({
+                "ok": True,
+                "data": response_data
+            }), 200
+            
+        except Exception as e:
+            logger.error(f"智能体处理失败：{str(e)}", exc_info=True)
+            # 如果智能体失败，使用简单的fallback回复
+            return jsonify({
+                "ok": True,
+                "data": {
+                    "role": "assistant",
+                    "content": f"抱歉，处理您的请求时出现了错误。请稍后重试。",
+                    "posts": []
+                }
+            }), 200
 
     # 上传头像
     @app.route("/api/users/avatar", methods=["POST"])

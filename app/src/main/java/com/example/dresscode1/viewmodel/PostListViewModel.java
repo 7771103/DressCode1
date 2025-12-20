@@ -83,80 +83,143 @@ public class PostListViewModel extends AndroidViewModel {
 
     // 点赞/取消点赞
     public void toggleLike(PostEntity post) {
-        // 乐观更新：立即更新本地状态
-        boolean newLikeState = !post.isLiked;
-        final int postId = post.id;
-        final boolean isCanceling = !newLikeState; // 是否是取消点赞
+        if (post == null || currentUserId == null) {
+            return;
+        }
         
-        // 更新列表并通知观察者
+        final int postId = post.id;
+        final boolean originalLikeState = post.isLiked;
+        final int originalLikeCount = post.likeCount;
+        final boolean newLikeState = !originalLikeState;
+        final boolean isCanceling = !newLikeState;
+        
+        // 乐观更新：更新列表中的帖子状态
         List<PostEntity> currentList = posts.getValue();
         if (currentList != null) {
-            // 如果是取消点赞且在点赞列表中，直接移除
+            // 如果在点赞列表中取消点赞，直接从列表移除，不更新任何状态和计数
             if (isCanceling && "likes".equals(listType)) {
                 List<PostEntity> newList = new java.util.ArrayList<>();
                 for (PostEntity currentPost : currentList) {
                     if (currentPost.id != postId) {
+                        // 只添加不是目标帖子的其他帖子
                         newList.add(currentPost);
                     }
+                    // 目标帖子不添加到新列表，直接从列表中移除
                 }
                 posts.setValue(newList);
             } else {
-                // 找到并更新对应的 post
-                for (int i = 0; i < currentList.size(); i++) {
-                    PostEntity currentPost = currentList.get(i);
+                // 其他情况：更新帖子状态和计数
+                List<PostEntity> newList = new java.util.ArrayList<>();
+                PostEntity updatedPost = null;
+                
+                for (PostEntity currentPost : currentList) {
                     if (currentPost.id == postId) {
-                        // 更新找到的 post 对象
-                        currentPost.isLiked = newLikeState;
+                        // 找到目标帖子，创建副本并更新状态
+                        updatedPost = new PostEntity();
+                        updatedPost.id = currentPost.id;
+                        updatedPost.userId = currentPost.userId;
+                        updatedPost.userNickname = currentPost.userNickname;
+                        updatedPost.userAvatar = currentPost.userAvatar;
+                        updatedPost.imageUrl = currentPost.imageUrl;
+                        updatedPost.content = currentPost.content;
+                        updatedPost.city = currentPost.city;
+                        updatedPost.tags = currentPost.tags;
+                        updatedPost.commentCount = currentPost.commentCount;
+                        updatedPost.favoriteCount = currentPost.favoriteCount;
+                        updatedPost.viewCount = currentPost.viewCount;
+                        updatedPost.isFavorited = currentPost.isFavorited;
+                        updatedPost.createdAt = currentPost.createdAt;
+                        updatedPost.lastUpdated = currentPost.lastUpdated;
+                        
+                        // 更新点赞状态和计数
+                        updatedPost.isLiked = newLikeState;
                         if (newLikeState) {
-                            currentPost.likeCount++;
+                            updatedPost.likeCount = currentPost.likeCount + 1;
                         } else {
-                            currentPost.likeCount = Math.max(0, currentPost.likeCount - 1);
+                            updatedPost.likeCount = Math.max(0, currentPost.likeCount - 1);
                         }
-                        break;
+                        
+                        newList.add(updatedPost);
+                    } else {
+                        newList.add(currentPost);
                     }
                 }
-                // 创建新列表以触发 LiveData 更新
-                posts.setValue(new java.util.ArrayList<>(currentList));
+                
+                // 如果列表中没有找到该帖子，说明可能是新点赞，需要添加到列表
+                if (updatedPost == null && newLikeState && "likes".equals(listType)) {
+                    // 这种情况会在服务器返回后通过刷新列表来处理
+                }
+                
+                posts.setValue(newList);
             }
         }
         
         // 执行网络请求
-        LiveData<Boolean> likeLiveData = repository.toggleLike(postId, currentUserId, !newLikeState);
+        LiveData<Boolean> likeLiveData = repository.toggleLike(postId, currentUserId);
         likeLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
             @Override
             public void onChanged(Boolean success) {
                 likeLiveData.removeObserver(this);
                 if (success != null && success) {
-                    // 操作成功，根据列表类型刷新
+                    // 操作成功：刷新列表以获取服务器的最新数据
                     if ("likes".equals(listType)) {
-                        loadUserLikes(currentUserId);
+                        if (isCanceling) {
+                            // 取消点赞，帖子已从列表移除，不需要重新加载
+                        } else {
+                            // 点赞，需要重新加载以显示新点赞的帖子
+                            loadUserLikes(currentUserId);
+                        }
                     } else if ("favorites".equals(listType)) {
+                        // 在收藏页面，重新加载收藏列表以获取最新的点赞状态
                         loadUserFavorites(currentUserId);
                     } else {
+                        // 普通列表，刷新以获取最新的计数
                         refreshPosts();
                     }
                 } else {
                     // 操作失败，回滚乐观更新
-                    if (isCanceling && "likes".equals(listType)) {
-                        // 如果是在点赞列表中取消，需要重新加载列表
-                        loadUserLikes(currentUserId);
-                    } else {
-                        List<PostEntity> currentList = posts.getValue();
-                        if (currentList != null) {
-                            for (int i = 0; i < currentList.size(); i++) {
-                                PostEntity currentPost = currentList.get(i);
-                                if (currentPost.id == postId) {
-                                    currentPost.isLiked = !newLikeState;
-                                    if (newLikeState) {
-                                        currentPost.likeCount = Math.max(0, currentPost.likeCount - 1);
-                                    } else {
-                                        currentPost.likeCount++;
-                                    }
-                                    break;
-                                }
+                    List<PostEntity> currentList = posts.getValue();
+                    if (currentList != null) {
+                        List<PostEntity> newList = new java.util.ArrayList<>();
+                        boolean found = false;
+                        
+                        for (PostEntity currentPost : currentList) {
+                            if (currentPost.id == postId) {
+                                // 恢复原始状态
+                                PostEntity restoredPost = new PostEntity();
+                                restoredPost.id = currentPost.id;
+                                restoredPost.userId = currentPost.userId;
+                                restoredPost.userNickname = currentPost.userNickname;
+                                restoredPost.userAvatar = currentPost.userAvatar;
+                                restoredPost.imageUrl = currentPost.imageUrl;
+                                restoredPost.content = currentPost.content;
+                                restoredPost.city = currentPost.city;
+                                restoredPost.tags = currentPost.tags;
+                                restoredPost.commentCount = currentPost.commentCount;
+                                restoredPost.favoriteCount = currentPost.favoriteCount;
+                                restoredPost.viewCount = currentPost.viewCount;
+                                restoredPost.isFavorited = currentPost.isFavorited;
+                                restoredPost.createdAt = currentPost.createdAt;
+                                restoredPost.lastUpdated = currentPost.lastUpdated;
+                                restoredPost.isLiked = originalLikeState;
+                                restoredPost.likeCount = originalLikeCount;
+                                newList.add(restoredPost);
+                                found = true;
+                            } else {
+                                newList.add(currentPost);
                             }
-                            posts.setValue(new java.util.ArrayList<>(currentList));
                         }
+                        
+                        // 如果在点赞列表中取消失败，需要恢复帖子到列表
+                        if (!found && isCanceling && "likes".equals(listType)) {
+                            // 重新加载列表
+                            loadUserLikes(currentUserId);
+                        } else {
+                            posts.setValue(newList);
+                        }
+                    } else {
+                        // 列表为空，重新加载
+                        refreshPosts();
                     }
                     errorMessage.setValue("操作失败，请重试");
                 }
@@ -166,80 +229,135 @@ public class PostListViewModel extends AndroidViewModel {
 
     // 收藏/取消收藏
     public void toggleFavorite(PostEntity post) {
-        // 乐观更新：立即更新本地状态
-        boolean newFavoriteState = !post.isFavorited;
-        final int postId = post.id;
-        final boolean isCanceling = !newFavoriteState; // 是否是取消收藏
+        if (post == null || currentUserId == null) {
+            return;
+        }
         
-        // 更新列表并通知观察者
+        final int postId = post.id;
+        final boolean originalFavoriteState = post.isFavorited;
+        final int originalFavoriteCount = post.favoriteCount;
+        final boolean newFavoriteState = !originalFavoriteState;
+        final boolean isCanceling = !newFavoriteState;
+        
+        // 乐观更新：更新列表中的帖子状态
         List<PostEntity> currentList = posts.getValue();
         if (currentList != null) {
-            // 如果是取消收藏且在收藏列表中，直接移除
-            if (isCanceling && "favorites".equals(listType)) {
-                List<PostEntity> newList = new java.util.ArrayList<>();
-                for (PostEntity currentPost : currentList) {
-                    if (currentPost.id != postId) {
-                        newList.add(currentPost);
+            List<PostEntity> newList = new java.util.ArrayList<>();
+            PostEntity updatedPost = null;
+            
+            for (PostEntity currentPost : currentList) {
+                if (currentPost.id == postId) {
+                    // 如果在收藏列表中取消收藏，直接从列表移除，不更新UI
+                    if (isCanceling && "favorites".equals(listType)) {
+                        // 不添加到新列表，帖子会从列表中消失
+                        continue;
                     }
-                }
-                posts.setValue(newList);
-            } else {
-                // 找到并更新对应的 post
-                for (int i = 0; i < currentList.size(); i++) {
-                    PostEntity currentPost = currentList.get(i);
-                    if (currentPost.id == postId) {
-                        // 更新找到的 post 对象
-                        currentPost.isFavorited = newFavoriteState;
-                        if (newFavoriteState) {
-                            currentPost.favoriteCount++;
-                        } else {
-                            currentPost.favoriteCount = Math.max(0, currentPost.favoriteCount - 1);
-                        }
-                        break;
+                    
+                    // 找到目标帖子，创建副本并更新状态
+                    updatedPost = new PostEntity();
+                    updatedPost.id = currentPost.id;
+                    updatedPost.userId = currentPost.userId;
+                    updatedPost.userNickname = currentPost.userNickname;
+                    updatedPost.userAvatar = currentPost.userAvatar;
+                    updatedPost.imageUrl = currentPost.imageUrl;
+                    updatedPost.content = currentPost.content;
+                    updatedPost.city = currentPost.city;
+                    updatedPost.tags = currentPost.tags;
+                    updatedPost.likeCount = currentPost.likeCount;
+                    updatedPost.commentCount = currentPost.commentCount;
+                    updatedPost.viewCount = currentPost.viewCount;
+                    updatedPost.isLiked = currentPost.isLiked;
+                    updatedPost.createdAt = currentPost.createdAt;
+                    updatedPost.lastUpdated = currentPost.lastUpdated;
+                    
+                    // 更新收藏状态和计数
+                    updatedPost.isFavorited = newFavoriteState;
+                    if (newFavoriteState) {
+                        updatedPost.favoriteCount = currentPost.favoriteCount + 1;
+                    } else {
+                        updatedPost.favoriteCount = Math.max(0, currentPost.favoriteCount - 1);
                     }
+                    
+                    newList.add(updatedPost);
+                } else {
+                    newList.add(currentPost);
                 }
-                // 创建新列表以触发 LiveData 更新
-                posts.setValue(new java.util.ArrayList<>(currentList));
             }
+            
+            // 如果列表中没有找到该帖子，说明可能是新收藏，需要添加到列表
+            if (updatedPost == null && newFavoriteState && "favorites".equals(listType)) {
+                // 这种情况会在服务器返回后通过刷新列表来处理
+            }
+            
+            posts.setValue(newList);
         }
         
         // 执行网络请求
-        LiveData<Boolean> favoriteLiveData = repository.toggleFavorite(postId, currentUserId, !newFavoriteState);
+        LiveData<Boolean> favoriteLiveData = repository.toggleFavorite(postId, currentUserId);
         favoriteLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
             @Override
             public void onChanged(Boolean success) {
                 favoriteLiveData.removeObserver(this);
                 if (success != null && success) {
-                    // 操作成功，根据列表类型刷新
-                    if ("likes".equals(listType)) {
+                    // 操作成功：刷新列表以获取服务器的最新数据
+                    if ("favorites".equals(listType)) {
+                        if (isCanceling) {
+                            // 取消收藏，帖子已从列表移除，不需要重新加载
+                        } else {
+                            // 收藏，需要重新加载以显示新收藏的帖子
+                            loadUserFavorites(currentUserId);
+                        }
+                    } else if ("likes".equals(listType)) {
+                        // 在点赞页面，重新加载点赞列表以获取最新的收藏状态
                         loadUserLikes(currentUserId);
-                    } else if ("favorites".equals(listType)) {
-                        loadUserFavorites(currentUserId);
                     } else {
+                        // 普通列表，刷新以获取最新的计数
                         refreshPosts();
                     }
                 } else {
                     // 操作失败，回滚乐观更新
-                    if (isCanceling && "favorites".equals(listType)) {
-                        // 如果是在收藏列表中取消，需要重新加载列表
-                        loadUserFavorites(currentUserId);
-                    } else {
-                        List<PostEntity> currentList = posts.getValue();
-                        if (currentList != null) {
-                            for (int i = 0; i < currentList.size(); i++) {
-                                PostEntity currentPost = currentList.get(i);
-                                if (currentPost.id == postId) {
-                                    currentPost.isFavorited = !newFavoriteState;
-                                    if (newFavoriteState) {
-                                        currentPost.favoriteCount = Math.max(0, currentPost.favoriteCount - 1);
-                                    } else {
-                                        currentPost.favoriteCount++;
-                                    }
-                                    break;
-                                }
+                    List<PostEntity> currentList = posts.getValue();
+                    if (currentList != null) {
+                        List<PostEntity> newList = new java.util.ArrayList<>();
+                        boolean found = false;
+                        
+                        for (PostEntity currentPost : currentList) {
+                            if (currentPost.id == postId) {
+                                // 恢复原始状态
+                                PostEntity restoredPost = new PostEntity();
+                                restoredPost.id = currentPost.id;
+                                restoredPost.userId = currentPost.userId;
+                                restoredPost.userNickname = currentPost.userNickname;
+                                restoredPost.userAvatar = currentPost.userAvatar;
+                                restoredPost.imageUrl = currentPost.imageUrl;
+                                restoredPost.content = currentPost.content;
+                                restoredPost.city = currentPost.city;
+                                restoredPost.tags = currentPost.tags;
+                                restoredPost.likeCount = currentPost.likeCount;
+                                restoredPost.commentCount = currentPost.commentCount;
+                                restoredPost.viewCount = currentPost.viewCount;
+                                restoredPost.isLiked = currentPost.isLiked;
+                                restoredPost.createdAt = currentPost.createdAt;
+                                restoredPost.lastUpdated = currentPost.lastUpdated;
+                                restoredPost.isFavorited = originalFavoriteState;
+                                restoredPost.favoriteCount = originalFavoriteCount;
+                                newList.add(restoredPost);
+                                found = true;
+                            } else {
+                                newList.add(currentPost);
                             }
-                            posts.setValue(new java.util.ArrayList<>(currentList));
                         }
+                        
+                        // 如果在收藏列表中取消失败，需要恢复帖子到列表
+                        if (!found && isCanceling && "favorites".equals(listType)) {
+                            // 重新加载列表
+                            loadUserFavorites(currentUserId);
+                        } else {
+                            posts.setValue(newList);
+                        }
+                    } else {
+                        // 列表为空，重新加载
+                        refreshPosts();
                     }
                     errorMessage.setValue("操作失败，请重试");
                 }

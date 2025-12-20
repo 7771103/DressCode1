@@ -102,7 +102,7 @@ public class PostRepository {
         // 先返回本地缓存（根据类型选择不同的查询）
         LiveData<List<PostEntity>> cachedPosts;
         
-        if (tabType != null && tabType.equals("city") && city != null) {
+        if (tabType != null && (tabType.equals("city") || tabType.equals("weather")) && city != null) {
             cachedPosts = postDao.getPostsByCity(city);
         } else if (userId != null) {
             cachedPosts = postDao.getPostsByUserId(userId);
@@ -189,7 +189,7 @@ public class PostRepository {
     }
 
     // 点赞/取消点赞
-    public LiveData<Boolean> toggleLike(int postId, int userId, boolean currentLikeState) {
+    public LiveData<Boolean> toggleLike(int postId, int userId) {
         MutableLiveData<Boolean> result = new MutableLiveData<>();
         
         LikeRequest request = new LikeRequest(userId);
@@ -200,19 +200,29 @@ public class PostRepository {
                 if (response.isSuccessful() && response.body() != null) {
                     LikeResponse body = response.body();
                     if (body.isOk()) {
-                        // 更新本地数据库
+                        // 更新本地数据库：使用服务器返回的准确状态
                         executorService.execute(() -> {
                             PostEntity post = postDao.getPostByIdSync(postId);
                             if (post != null) {
-                                boolean previousLiked = post.isLiked;
-                                post.isLiked = body.isLiked();
+                                // 获取数据库中的当前状态
+                                boolean dbCurrentLiked = post.isLiked;
+                                boolean serverNewLiked = body.isLiked();
+                                
+                                // 更新点赞状态
+                                post.isLiked = serverNewLiked;
                                 
                                 // 根据状态变化更新计数
-                                if (!previousLiked && post.isLiked) {
-                                    post.likeCount++;
-                                } else if (previousLiked && !post.isLiked) {
-                                    post.likeCount = Math.max(0, post.likeCount - 1);
+                                // 如果状态发生变化，说明操作成功，需要更新计数
+                                if (dbCurrentLiked != serverNewLiked) {
+                                    if (serverNewLiked) {
+                                        // 从未点赞变为已点赞，计数+1
+                                        post.likeCount++;
+                                    } else {
+                                        // 从已点赞变为未点赞，计数-1
+                                        post.likeCount = Math.max(0, post.likeCount - 1);
+                                    }
                                 }
+                                // 如果状态没有变化，说明可能出现了异常情况，保持当前计数不变
                                 
                                 post.lastUpdated = System.currentTimeMillis();
                                 postDao.updatePost(post);
@@ -237,7 +247,7 @@ public class PostRepository {
     }
 
     // 收藏/取消收藏
-    public LiveData<Boolean> toggleFavorite(int postId, int userId, boolean currentFavoriteState) {
+    public LiveData<Boolean> toggleFavorite(int postId, int userId) {
         MutableLiveData<Boolean> result = new MutableLiveData<>();
         
         FavoriteRequest request = new FavoriteRequest(userId);
@@ -248,19 +258,29 @@ public class PostRepository {
                 if (response.isSuccessful() && response.body() != null) {
                     FavoriteResponse body = response.body();
                     if (body.isOk()) {
-                        // 更新本地数据库
+                        // 更新本地数据库：使用服务器返回的准确状态
                         executorService.execute(() -> {
                             PostEntity post = postDao.getPostByIdSync(postId);
                             if (post != null) {
-                                boolean previousFavorited = post.isFavorited;
-                                post.isFavorited = body.isFavorited();
+                                // 获取数据库中的当前状态
+                                boolean dbCurrentFavorited = post.isFavorited;
+                                boolean serverNewFavorited = body.isFavorited();
+                                
+                                // 更新收藏状态
+                                post.isFavorited = serverNewFavorited;
                                 
                                 // 根据状态变化更新计数
-                                if (!previousFavorited && post.isFavorited) {
-                                    post.favoriteCount++;
-                                } else if (previousFavorited && !post.isFavorited) {
-                                    post.favoriteCount = Math.max(0, post.favoriteCount - 1);
+                                // 如果状态发生变化，说明操作成功，需要更新计数
+                                if (dbCurrentFavorited != serverNewFavorited) {
+                                    if (serverNewFavorited) {
+                                        // 从未收藏变为已收藏，计数+1
+                                        post.favoriteCount++;
+                                    } else {
+                                        // 从已收藏变为未收藏，计数-1
+                                        post.favoriteCount = Math.max(0, post.favoriteCount - 1);
+                                    }
                                 }
+                                // 如果状态没有变化，说明可能出现了异常情况，保持当前计数不变
                                 
                                 post.lastUpdated = System.currentTimeMillis();
                                 postDao.updatePost(post);
@@ -378,8 +398,7 @@ public class PostRepository {
 
     // 获取用户收藏列表
     public LiveData<List<PostEntity>> getUserFavorites(int userId, Integer currentUserId) {
-        // 先返回本地缓存
-        LiveData<List<PostEntity>> cachedPosts = postDao.getPosts(20);
+        MutableLiveData<List<PostEntity>> result = new MutableLiveData<>();
         
         // 从网络获取最新数据
         executorService.execute(() -> {
@@ -397,25 +416,30 @@ public class PostRepository {
                             }
                             executorService.execute(() -> {
                                 postDao.insertPosts(entities);
+                                result.postValue(entities);
                             });
+                        } else {
+                            result.postValue(new ArrayList<>());
                         }
+                    } else {
+                        result.postValue(new ArrayList<>());
                     }
                 }
 
                 @Override
                 public void onFailure(Call<PostListResponse> call, Throwable t) {
-                    // 网络失败时，使用缓存数据
+                    // 网络失败时，返回空列表
+                    result.postValue(new ArrayList<>());
                 }
             });
         });
         
-        return cachedPosts;
+        return result;
     }
 
     // 获取用户点赞列表
     public LiveData<List<PostEntity>> getUserLikes(int userId, Integer currentUserId) {
-        // 先返回本地缓存
-        LiveData<List<PostEntity>> cachedPosts = postDao.getPosts(20);
+        MutableLiveData<List<PostEntity>> result = new MutableLiveData<>();
         
         // 从网络获取最新数据
         executorService.execute(() -> {
@@ -433,19 +457,25 @@ public class PostRepository {
                             }
                             executorService.execute(() -> {
                                 postDao.insertPosts(entities);
+                                result.postValue(entities);
                             });
+                        } else {
+                            result.postValue(new ArrayList<>());
                         }
+                    } else {
+                        result.postValue(new ArrayList<>());
                     }
                 }
 
                 @Override
                 public void onFailure(Call<PostListResponse> call, Throwable t) {
-                    // 网络失败时，使用缓存数据
+                    // 网络失败时，返回空列表
+                    result.postValue(new ArrayList<>());
                 }
             });
         });
         
-        return cachedPosts;
+        return result;
     }
 
     // 创建帖子
