@@ -32,6 +32,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
 import com.example.dresscode1.adapter.PostAdapter;
+import com.example.dresscode1.FollowListActivity;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Comment;
 import com.example.dresscode1.network.dto.CommentListResponse;
@@ -65,13 +66,21 @@ import retrofit2.Response;
 public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPostActionListener {
 
     private LottieAnimationView animHome;
+    private LottieAnimationView animAgent;
+    private LottieAnimationView animWardrobe;
     private LottieAnimationView animProfile;
     private LinearLayout tabHome;
+    private LinearLayout tabAgent;
+    private LinearLayout tabWardrobe;
     private LinearLayout tabProfile;
     private TextView tvTabHome;
+    private TextView tvTabAgent;
+    private TextView tvTabWardrobe;
     private TextView tvTabProfile;
     private TextView tvTitle;
     private RecyclerView rvPosts;
+    private NestedScrollView svAgent;
+    private NestedScrollView svWardrobe;
     private NestedScrollView svProfile;
     
     // 我的页面视图
@@ -81,6 +90,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvPostCount;
     private TextView tvLikeCount;
     private TextView tvCollectCount;
+    private TextView tvFollowingCount;
     private TextView btnEditProfile;
     private TextView btnLogout;
     private TextView btnCreatePost;
@@ -93,7 +103,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private PostAdapter myPostAdapter;
     private UserPrefs userPrefs;
     private int currentUserId;
-    private boolean isHomeTab = true;
+    private String currentTab = "home"; // home, agent, wardrobe, profile
     private String currentProfileTab = "posts"; // posts, likes, collections
     
     // 分页加载相关变量
@@ -221,7 +231,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         // 刷新帖子列表，确保头像更新
                         loadPosts();
                         // 如果当前在"我的"页面，也刷新我的帖子列表
-                        if (!isHomeTab) {
+                        if (currentTab.equals("profile")) {
                             switchProfileTab(currentProfileTab);
                         }
                     }
@@ -231,13 +241,21 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
     private void bindViews() {
         animHome = findViewById(R.id.animHome);
+        animAgent = findViewById(R.id.animAgent);
+        animWardrobe = findViewById(R.id.animWardrobe);
         animProfile = findViewById(R.id.animProfile);
         tabHome = findViewById(R.id.tabHome);
+        tabAgent = findViewById(R.id.tabAgent);
+        tabWardrobe = findViewById(R.id.tabWardrobe);
         tabProfile = findViewById(R.id.tabProfile);
         tvTabHome = findViewById(R.id.tvTabHome);
+        tvTabAgent = findViewById(R.id.tvTabAgent);
+        tvTabWardrobe = findViewById(R.id.tvTabWardrobe);
         tvTabProfile = findViewById(R.id.tvTabProfile);
         tvTitle = findViewById(R.id.tvTitle);
         rvPosts = findViewById(R.id.rvPosts);
+        svAgent = findViewById(R.id.svAgent);
+        svWardrobe = findViewById(R.id.svWardrobe);
         svProfile = findViewById(R.id.svProfile);
         
         // 我的页面视图
@@ -247,6 +265,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvPostCount = findViewById(R.id.tvPostCount);
         tvLikeCount = findViewById(R.id.tvLikeCount);
         tvCollectCount = findViewById(R.id.tvCollectCount);
+        tvFollowingCount = findViewById(R.id.tvFollowingCount);
         btnEditProfile = findViewById(R.id.btnEditProfile);
         btnLogout = findViewById(R.id.btnLogout);
         btnCreatePost = findViewById(R.id.btnCreatePost);
@@ -259,18 +278,26 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private void initState() {
         // 每个 Tab 的动画只播放一次
         animHome.setRepeatCount(0);
+        animAgent.setRepeatCount(0);
+        animWardrobe.setRepeatCount(0);
         animProfile.setRepeatCount(0);
 
         // 只播放前 60% 的进度，避免停在"小圆点"这种起始/结束帧
         animHome.setMinAndMaxProgress(0f, 0.6f);
+        animAgent.setMinAndMaxProgress(0f, 0.6f);
+        animWardrobe.setMinAndMaxProgress(0f, 0.6f);
         animProfile.setMinAndMaxProgress(0f, 0.6f);
 
         // 默认选中首页：直接显示完整首页图标（和设计里一样的样子与大小）
         animHome.setProgress(0.6f);
-        // "我的"默认未选中，也显示完整图标，只通过文字颜色区分选中态
+        // 其他Tab默认未选中，也显示完整图标，只通过文字颜色区分选中态
+        animAgent.setProgress(0.6f);
+        animWardrobe.setProgress(0.6f);
         animProfile.setProgress(0.6f);
 
         tvTabHome.setTextColor(getColor(R.color.primary_blue_gray));
+        tvTabAgent.setTextColor(getColor(R.color.text_tertiary));
+        tvTabWardrobe.setTextColor(getColor(R.color.text_tertiary));
         tvTabProfile.setTextColor(getColor(R.color.text_tertiary));
 
         tvTitle.setText("首页");
@@ -316,6 +343,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
     private void setupActions() {
         tabHome.setOnClickListener(v -> switchToHome());
+        tabAgent.setOnClickListener(v -> switchToAgent());
+        tabWardrobe.setOnClickListener(v -> switchToWardrobe());
         tabProfile.setOnClickListener(v -> switchToProfile());
         
         // 我的页面操作
@@ -325,10 +354,22 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabMyPosts.setOnClickListener(v -> switchProfileTab("posts"));
         tabMyLikes.setOnClickListener(v -> switchProfileTab("likes"));
         tabMyCollections.setOnClickListener(v -> switchProfileTab("collections"));
+        
+        // 点击关注数区域，跳转到关注列表
+        findViewById(R.id.llFollowing).setOnClickListener(v -> {
+            if (currentUserId <= 0) {
+                Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent intent = new Intent(this, FollowListActivity.class);
+            intent.putExtra(FollowListActivity.EXTRA_USER_ID, currentUserId);
+            intent.putExtra(FollowListActivity.EXTRA_LIST_TYPE, "following");
+            startActivity(intent);
+        });
     }
 
     private void switchToHome() {
-        isHomeTab = true;
+        currentTab = "home";
         
         // 播放首页图标动画：只在 0 ~ 60% 区间内播放，结束后停在完整首页图标，而不是小圆点
         animHome.cancelAnimation();
@@ -336,23 +377,91 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         animHome.setProgress(0f);
         animHome.playAnimation();
 
-        // "我的"保持静态完整图标
+        // 其他Tab保持静态完整图标
+        animAgent.cancelAnimation();
+        animAgent.setProgress(0.6f);
+        animWardrobe.cancelAnimation();
+        animWardrobe.setProgress(0.6f);
         animProfile.cancelAnimation();
         animProfile.setProgress(0.6f);
 
         tvTabHome.setTextColor(getColor(R.color.primary_blue_gray));
+        tvTabAgent.setTextColor(getColor(R.color.text_tertiary));
+        tvTabWardrobe.setTextColor(getColor(R.color.text_tertiary));
         tvTabProfile.setTextColor(getColor(R.color.text_tertiary));
 
         tvTitle.setText("首页");
         
         rvPosts.setVisibility(View.VISIBLE);
+        svAgent.setVisibility(View.GONE);
+        svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
         
         loadPosts();
     }
 
+    private void switchToAgent() {
+        currentTab = "agent";
+        
+        // 播放智能体图标动画
+        animAgent.cancelAnimation();
+        animAgent.setMinAndMaxProgress(0f, 0.6f);
+        animAgent.setProgress(0f);
+        animAgent.playAnimation();
+
+        // 其他Tab保持静态完整图标
+        animHome.cancelAnimation();
+        animHome.setProgress(0.6f);
+        animWardrobe.cancelAnimation();
+        animWardrobe.setProgress(0.6f);
+        animProfile.cancelAnimation();
+        animProfile.setProgress(0.6f);
+
+        tvTabHome.setTextColor(getColor(R.color.text_tertiary));
+        tvTabAgent.setTextColor(getColor(R.color.primary_blue_gray));
+        tvTabWardrobe.setTextColor(getColor(R.color.text_tertiary));
+        tvTabProfile.setTextColor(getColor(R.color.text_tertiary));
+
+        tvTitle.setText("智能体");
+        
+        rvPosts.setVisibility(View.GONE);
+        svAgent.setVisibility(View.VISIBLE);
+        svWardrobe.setVisibility(View.GONE);
+        svProfile.setVisibility(View.GONE);
+    }
+
+    private void switchToWardrobe() {
+        currentTab = "wardrobe";
+        
+        // 播放衣橱图标动画
+        animWardrobe.cancelAnimation();
+        animWardrobe.setMinAndMaxProgress(0f, 0.6f);
+        animWardrobe.setProgress(0f);
+        animWardrobe.playAnimation();
+
+        // 其他Tab保持静态完整图标
+        animHome.cancelAnimation();
+        animHome.setProgress(0.6f);
+        animAgent.cancelAnimation();
+        animAgent.setProgress(0.6f);
+        animProfile.cancelAnimation();
+        animProfile.setProgress(0.6f);
+
+        tvTabHome.setTextColor(getColor(R.color.text_tertiary));
+        tvTabAgent.setTextColor(getColor(R.color.text_tertiary));
+        tvTabWardrobe.setTextColor(getColor(R.color.primary_blue_gray));
+        tvTabProfile.setTextColor(getColor(R.color.text_tertiary));
+
+        tvTitle.setText("衣橱");
+        
+        rvPosts.setVisibility(View.GONE);
+        svAgent.setVisibility(View.GONE);
+        svWardrobe.setVisibility(View.VISIBLE);
+        svProfile.setVisibility(View.GONE);
+    }
+
     private void switchToProfile() {
-        isHomeTab = false;
+        currentTab = "profile";
         
         // 播放"我的"图标动画：只在 0 ~ 60% 区间内播放，结束后停在完整"我的"图标
         animProfile.cancelAnimation();
@@ -360,16 +469,24 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         animProfile.setProgress(0f);
         animProfile.playAnimation();
 
-        // 首页保持静态完整图标
+        // 其他Tab保持静态完整图标
         animHome.cancelAnimation();
         animHome.setProgress(0.6f);
+        animAgent.cancelAnimation();
+        animAgent.setProgress(0.6f);
+        animWardrobe.cancelAnimation();
+        animWardrobe.setProgress(0.6f);
 
         tvTabHome.setTextColor(getColor(R.color.text_tertiary));
+        tvTabAgent.setTextColor(getColor(R.color.text_tertiary));
+        tvTabWardrobe.setTextColor(getColor(R.color.text_tertiary));
         tvTabProfile.setTextColor(getColor(R.color.primary_blue_gray));
 
         tvTitle.setText("我的");
         
         rvPosts.setVisibility(View.GONE);
+        svAgent.setVisibility(View.GONE);
+        svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.VISIBLE);
         
         // 加载用户信息
@@ -384,7 +501,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
-        ApiClient.getService().getUserInfo(currentUserId)
+        ApiClient.getService().getUserInfo(currentUserId, currentUserId)
                 .enqueue(new Callback<UserInfoResponse>() {
                     @Override
                     public void onResponse(Call<UserInfoResponse> call, Response<UserInfoResponse> response) {
@@ -410,6 +527,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvPostCount.setText(String.valueOf(userInfo.getPostCount()));
         tvLikeCount.setText(String.valueOf(userInfo.getLikeCount()));
         tvCollectCount.setText(String.valueOf(userInfo.getCollectCount()));
+        tvFollowingCount.setText(String.valueOf(userInfo.getFollowingCount()));
         
         // 加载头像
         if (userInfo.getAvatar() != null && !userInfo.getAvatar().isEmpty()) {
@@ -769,9 +887,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 loadUserInfo();
                                 loadPosts(); // 刷新首页帖子列表
                                 // 如果当前在"我的"页面，切换到"我的帖子"标签并刷新
-                                if (!isHomeTab) {
+                                if (currentTab.equals("profile")) {
                                     switchProfileTab("posts");
-                                } else {
+                                } else if (currentTab.equals("home")) {
                                     // 如果在首页，也预加载我的帖子，以便用户切换到我的页面时能看到
                                     loadMyPosts();
                                 }
@@ -933,9 +1051,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 post.setLiked(likeResponse.isLiked());
                                 post.setLikeCount(likeResponse.isLiked() ? post.getLikeCount() + 1 : post.getLikeCount() - 1);
                                 
-                                if (isHomeTab) {
+                                if (currentTab.equals("home")) {
                                     postAdapter.updatePost(position, post);
-                                } else {
+                                } else if (currentTab.equals("profile")) {
                                     // 如果在"我的点赞"标签页中取消点赞，重新加载列表
                                     if (currentProfileTab.equals("likes") && !likeResponse.isLiked() && wasLiked) {
                                         loadLikedPosts();
@@ -973,6 +1091,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     @Override
+    public void onUserClick(Post post) {
+        // 跳转到用户主页
+        Intent intent = new Intent(this, UserProfileActivity.class);
+        intent.putExtra("user_id", post.getUserId());
+        startActivity(intent);
+    }
+
+    @Override
     public void onCollectClick(Post post, int position) {
         if (currentUserId <= 0) {
             Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
@@ -1001,9 +1127,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                     post.setCollectCount(Math.max(0, post.getCollectCount() - 1));
                                 }
                                 
-                                if (isHomeTab) {
+                                if (currentTab.equals("home")) {
                                     postAdapter.updatePost(position, post);
-                                } else {
+                                } else if (currentTab.equals("profile")) {
                                     // 如果在"我的收藏"标签页中取消收藏，重新加载列表
                                     if (currentProfileTab.equals("collections") && !nowCollected && wasCollected) {
                                         loadCollectedPosts();
@@ -1083,9 +1209,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                             if (commentResponse.isOk()) {
                                 Toast.makeText(HomeActivity.this, "评论成功", Toast.LENGTH_SHORT).show();
                                 // 刷新帖子列表
-                                if (isHomeTab) {
+                                if (currentTab.equals("home")) {
                                     loadPosts();
-                                } else {
+                                } else if (currentTab.equals("profile")) {
                                     loadMyPosts();
                                 }
                             }

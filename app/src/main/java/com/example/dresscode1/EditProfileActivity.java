@@ -215,7 +215,7 @@ public class EditProfileActivity extends AppCompatActivity {
     }
 
     private void loadUserInfo() {
-        ApiClient.getService().getUserInfo(currentUserId)
+        ApiClient.getService().getUserInfo(currentUserId, currentUserId > 0 ? currentUserId : null)
                 .enqueue(new Callback<UserInfoResponse>() {
                     @Override
                     public void onResponse(Call<UserInfoResponse> call, Response<UserInfoResponse> response) {

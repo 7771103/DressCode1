@@ -1,5 +1,6 @@
 package com.example.dresscode1;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ImageView;
@@ -9,6 +10,7 @@ import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -22,6 +24,8 @@ import com.example.dresscode1.network.dto.CommentResponse;
 import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
+import com.example.dresscode1.network.dto.UserInfo;
+import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.utils.TimeUtils;
 import com.example.dresscode1.utils.UserPrefs;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -50,11 +54,15 @@ public class PostDetailActivity extends AppCompatActivity {
     private RecyclerView rvComments;
     private TextInputEditText etComment;
     private com.google.android.material.button.MaterialButton btnSendComment;
+    private LinearLayout llUserInfo;
+    private MaterialButton btnFollow;
 
     private Post post;
     private CommentAdapter commentAdapter;
     private UserPrefs userPrefs;
     private int currentUserId;
+    private UserInfo userInfo;
+    private boolean isFollowing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,6 +85,7 @@ public class PostDetailActivity extends AppCompatActivity {
         setupToolbar();
         setupRecyclerView();
         loadPostData();
+        loadUserInfo();
         loadComments();
         setupActions();
     }
@@ -98,6 +107,8 @@ public class PostDetailActivity extends AppCompatActivity {
         rvComments = findViewById(R.id.rvComments);
         etComment = findViewById(R.id.etComment);
         btnSendComment = findViewById(R.id.btnSendComment);
+        llUserInfo = findViewById(R.id.llUserInfo);
+        btnFollow = findViewById(R.id.btnFollow);
     }
 
     private void setupToolbar() {
@@ -192,6 +203,16 @@ public class PostDetailActivity extends AppCompatActivity {
         btnLike.setOnClickListener(v -> toggleLike());
         btnCollect.setOnClickListener(v -> toggleCollect());
         btnSendComment.setOnClickListener(v -> sendComment());
+        btnFollow.setOnClickListener(v -> toggleFollow());
+        
+        // 点击头像和用户名区域，跳转到用户主页
+        llUserInfo.setOnClickListener(v -> {
+            if (post != null && post.getUserId() > 0) {
+                Intent intent = new Intent(this, UserProfileActivity.class);
+                intent.putExtra("user_id", post.getUserId());
+                startActivity(intent);
+            }
+        });
     }
 
     private void toggleLike() {
@@ -315,6 +336,92 @@ public class PostDetailActivity extends AppCompatActivity {
                     @Override
                     public void onFailure(Call<CommentListResponse> call, Throwable t) {
                         // 静默失败，不影响页面显示
+                    }
+                });
+    }
+
+    private void loadUserInfo() {
+        if (post == null || post.getUserId() <= 0) {
+            return;
+        }
+
+        // 如果是自己的帖子，不显示关注按钮
+        if (currentUserId > 0 && currentUserId == post.getUserId()) {
+            btnFollow.setVisibility(View.GONE);
+            return;
+        }
+
+        // 获取用户信息以检查关注状态
+        ApiClient.getService().getUserInfo(post.getUserId(), currentUserId > 0 ? currentUserId : null)
+                .enqueue(new Callback<UserInfoResponse>() {
+                    @Override
+                    public void onResponse(Call<UserInfoResponse> call, Response<UserInfoResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            UserInfoResponse userInfoResponse = response.body();
+                            if (userInfoResponse.isOk() && userInfoResponse.getData() != null) {
+                                userInfo = userInfoResponse.getData();
+                                isFollowing = userInfo.isFollowing();
+                                updateFollowButton();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<UserInfoResponse> call, Throwable t) {
+                        // 静默失败，不影响页面显示
+                    }
+                });
+    }
+
+    private void updateFollowButton() {
+        if (currentUserId <= 0 || post == null || post.getUserId() == currentUserId) {
+            btnFollow.setVisibility(View.GONE);
+            return;
+        }
+
+        btnFollow.setVisibility(View.VISIBLE);
+        if (isFollowing) {
+            btnFollow.setText("已关注");
+            btnFollow.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.text_secondary));
+        } else {
+            btnFollow.setText("关注");
+            btnFollow.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.primary_blue_gray));
+        }
+    }
+
+    private void toggleFollow() {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (post == null || post.getUserId() <= 0) {
+            return;
+        }
+
+        LikeRequest request = new LikeRequest(currentUserId);
+        ApiClient.getService().toggleFollow(post.getUserId(), request)
+                .enqueue(new Callback<LikeResponse>() {
+                    @Override
+                    public void onResponse(Call<LikeResponse> call, Response<LikeResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            LikeResponse followResponse = response.body();
+                            if (followResponse.isOk()) {
+                                isFollowing = followResponse.isFollowing();
+                                updateFollowButton();
+                                
+                                Toast.makeText(PostDetailActivity.this, 
+                                        isFollowing ? "关注成功" : "取消关注成功", 
+                                        Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(PostDetailActivity.this, followResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<LikeResponse> call, Throwable t) {
+                        Toast.makeText(PostDetailActivity.this, "操作失败", Toast.LENGTH_SHORT).show();
                     }
                 });
     }

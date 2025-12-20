@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
@@ -59,6 +60,18 @@ def create_app():
 
     db = SQLAlchemy(app)
 
+    # 辅助函数：格式化时间为ISO格式，明确标识为UTC
+    def format_utc_time(dt):
+        """将datetime对象格式化为ISO格式的UTC时间字符串，添加'Z'后缀"""
+        if dt is None:
+            return None
+        # 确保时间是UTC时间，并添加'Z'后缀
+        iso_str = dt.isoformat()
+        if not iso_str.endswith('Z') and '+' not in iso_str:
+            # 如果没有时区标识，添加'Z'表示UTC
+            iso_str = iso_str + 'Z'
+        return iso_str
+
     class User(db.Model):
         __tablename__ = "users"
         id = db.Column(db.Integer, primary_key=True)
@@ -103,6 +116,15 @@ def create_app():
         content = db.Column(db.Text, nullable=False)
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         user = db.relationship("User", backref="comments")
+
+    class Follow(db.Model):
+        __tablename__ = "follows"
+        id = db.Column(db.Integer, primary_key=True)
+        follower_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        following_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        follower = db.relationship("User", foreign_keys=[follower_id], backref="following_list")
+        following = db.relationship("User", foreign_keys=[following_id], backref="follower_list")
 
     @app.route("/api/register", methods=["POST"])
     def register():
@@ -167,7 +189,15 @@ def create_app():
         query = Post.query
         if user_id:
             query = query.filter_by(user_id=user_id)
-        query = query.order_by(Post.created_at.desc())
+        # 排除未来的日期（防止错误数据）
+        now = datetime.utcnow()
+        query = query.filter(Post.created_at <= now)
+        # 综合排序：优先按时间降序（新帖子优先），然后按综合分数降序（互动多的优先）
+        # 这样新发布的帖子会优先显示，相同时间段的帖子按互动数排序
+        query = query.order_by(
+            Post.created_at.desc(),
+            (Post.like_count + Post.collect_count * 2).desc()
+        )
 
         posts = query.paginate(page=page, per_page=page_size, error_out=False)
         current_user_id = request.args.get("current_user_id", type=int) or 0
@@ -203,7 +233,7 @@ def create_app():
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
-                    "createdAt": post.created_at.isoformat() if post.created_at else None,
+                    "createdAt": format_utc_time(post.created_at),
                 }
             )
 
@@ -227,9 +257,15 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
 
+        # 排除未来的日期（防止错误数据）
+        now = datetime.utcnow()
         posts = (
             Post.query.filter_by(user_id=user_id)
-            .order_by(Post.created_at.desc())
+            .filter(Post.created_at <= now)
+            .order_by(
+                Post.created_at.desc(),
+                (Post.like_count + Post.collect_count * 2).desc()
+            )
             .paginate(page=page, per_page=page_size, error_out=False)
         )
 
@@ -258,7 +294,7 @@ def create_app():
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
-                    "createdAt": post.created_at.isoformat() if post.created_at else None,
+                    "createdAt": format_utc_time(post.created_at),
                 }
             )
 
@@ -352,9 +388,7 @@ def create_app():
                     "userNickname": user.nickname if user else "未知用户",
                     "userAvatar": user.avatar if user else None,
                     "content": comment.content,
-                    "createdAt": comment.created_at.isoformat()
-                    if comment.created_at
-                    else None,
+                    "createdAt": format_utc_time(comment.created_at),
                 }
             )
 
@@ -400,9 +434,7 @@ def create_app():
                     "userNickname": user.nickname if user else "未知用户",
                     "userAvatar": user.avatar if user else None,
                     "content": comment.content,
-                    "createdAt": comment.created_at.isoformat()
-                    if comment.created_at
-                    else None,
+                    "createdAt": format_utc_time(comment.created_at),
                 },
             }
         ), 201
@@ -418,6 +450,19 @@ def create_app():
         post_count = Post.query.filter_by(user_id=user_id).count()
         like_count = Like.query.filter_by(user_id=user_id).count()
         collect_count = Collection.query.filter_by(user_id=user_id).count()
+        
+        # 统计关注数和粉丝数
+        following_count = Follow.query.filter_by(follower_id=user_id).count()
+        follower_count = Follow.query.filter_by(following_id=user_id).count()
+        
+        # 检查当前用户是否关注了该用户
+        current_user_id = request.args.get("current_user_id", type=int) or 0
+        is_following = False
+        if current_user_id > 0 and current_user_id != user_id:
+            is_following = Follow.query.filter_by(
+                follower_id=current_user_id, 
+                following_id=user_id
+            ).first() is not None
 
         return jsonify(
             {
@@ -432,6 +477,9 @@ def create_app():
                     "postCount": post_count,
                     "likeCount": like_count,
                     "collectCount": collect_count,
+                    "followingCount": following_count,
+                    "followerCount": follower_count,
+                    "isFollowing": is_following,
                 },
             }
         ), 200
@@ -446,12 +494,18 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
 
-        # 使用 JOIN 查询，按帖子创建时间倒序排列
+        # 使用 JOIN 查询，优先按时间排序，然后按综合分数排序
+        # 排除未来的日期（防止错误数据）
+        now = datetime.utcnow()
         query = (
             db.session.query(Post, Like)
             .join(Like, Post.id == Like.post_id)
             .filter(Like.user_id == user_id)
-            .order_by(Post.created_at.desc())
+            .filter(Post.created_at <= now)
+            .order_by(
+                Post.created_at.desc(),
+                (Post.like_count + Post.collect_count * 2).desc()
+            )
         )
         
         # 手动实现分页
@@ -480,7 +534,7 @@ def create_app():
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
-                    "createdAt": post.created_at.isoformat() if post.created_at else None,
+                    "createdAt": format_utc_time(post.created_at),
                 }
             )
 
@@ -504,12 +558,18 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
 
-        # 使用 JOIN 查询，按帖子创建时间倒序排列
+        # 使用 JOIN 查询，优先按时间排序，然后按综合分数排序
+        # 排除未来的日期（防止错误数据）
+        now = datetime.utcnow()
         query = (
             db.session.query(Post, Collection)
             .join(Collection, Post.id == Collection.post_id)
             .filter(Collection.user_id == user_id)
-            .order_by(Post.created_at.desc())
+            .filter(Post.created_at <= now)
+            .order_by(
+                Post.created_at.desc(),
+                (Post.like_count + Post.collect_count * 2).desc()
+            )
         )
         
         # 手动实现分页
@@ -538,7 +598,7 @@ def create_app():
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
-                    "createdAt": post.created_at.isoformat() if post.created_at else None,
+                    "createdAt": format_utc_time(post.created_at),
                 }
             )
 
@@ -697,6 +757,122 @@ def create_app():
         except Exception as e:
             return jsonify({"ok": False, "msg": f"上传失败: {str(e)}"}), 500
     
+    # 关注/取消关注用户
+    @app.route("/api/user/<int:user_id>/follow", methods=["POST"])
+    def toggle_follow(user_id):
+        data = request.get_json(silent=True) or {}
+        current_user_id = data.get("user_id")
+        if not current_user_id:
+            return jsonify({"ok": False, "msg": "需要登录"}), 401
+        
+        if current_user_id == user_id:
+            return jsonify({"ok": False, "msg": "不能关注自己"}), 400
+        
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+        
+        follow = Follow.query.filter_by(
+            follower_id=current_user_id, 
+            following_id=user_id
+        ).first()
+        
+        if follow:
+            # 取消关注
+            db.session.delete(follow)
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "取消关注成功", "isFollowing": False}), 200
+        else:
+            # 关注
+            follow = Follow(follower_id=current_user_id, following_id=user_id)
+            db.session.add(follow)
+            db.session.commit()
+            return jsonify({"ok": True, "msg": "关注成功", "isFollowing": True}), 200
+    
+    # 获取关注列表
+    @app.route("/api/user/<int:user_id>/following", methods=["GET"])
+    def get_following(user_id):
+        page = request.args.get("page", 1, type=int)
+        page_size = request.args.get("page_size", 20, type=int)
+        current_user_id = request.args.get("current_user_id", type=int) or 0
+        
+        # 查询该用户关注的所有用户
+        follows = (
+            Follow.query.filter_by(follower_id=user_id)
+            .order_by(Follow.created_at.desc())
+            .paginate(page=page, per_page=page_size, error_out=False)
+        )
+        
+        result = []
+        for follow in follows.items:
+            following_user = User.query.get(follow.following_id)
+            if following_user:
+                # 检查当前用户是否关注了这个用户
+                is_following = False
+                if current_user_id > 0 and current_user_id != following_user.id:
+                    is_following = Follow.query.filter_by(
+                        follower_id=current_user_id,
+                        following_id=following_user.id
+                    ).first() is not None
+                
+                result.append({
+                    "id": following_user.id,
+                    "phone": following_user.phone,
+                    "nickname": following_user.nickname,
+                    "avatar": following_user.avatar,
+                    "isFollowing": is_following,
+                })
+        
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "page": page,
+            "pageSize": page_size,
+            "total": follows.total,
+        }), 200
+    
+    # 获取粉丝列表
+    @app.route("/api/user/<int:user_id>/followers", methods=["GET"])
+    def get_followers(user_id):
+        page = request.args.get("page", 1, type=int)
+        page_size = request.args.get("page_size", 20, type=int)
+        current_user_id = request.args.get("current_user_id", type=int) or 0
+        
+        # 查询关注该用户的所有用户
+        follows = (
+            Follow.query.filter_by(following_id=user_id)
+            .order_by(Follow.created_at.desc())
+            .paginate(page=page, per_page=page_size, error_out=False)
+        )
+        
+        result = []
+        for follow in follows.items:
+            follower_user = User.query.get(follow.follower_id)
+            if follower_user:
+                # 检查当前用户是否关注了这个用户
+                is_following = False
+                if current_user_id > 0 and current_user_id != follower_user.id:
+                    is_following = Follow.query.filter_by(
+                        follower_id=current_user_id,
+                        following_id=follower_user.id
+                    ).first() is not None
+                
+                result.append({
+                    "id": follower_user.id,
+                    "phone": follower_user.phone,
+                    "nickname": follower_user.nickname,
+                    "avatar": follower_user.avatar,
+                    "isFollowing": is_following,
+                })
+        
+        return jsonify({
+            "ok": True,
+            "data": result,
+            "page": page,
+            "pageSize": page_size,
+            "total": follows.total,
+        }), 200
+
     # 创建帖子
     @app.route("/api/posts", methods=["POST"])
     def create_post():
@@ -741,9 +917,7 @@ def create_app():
                     "collectCount": post.collect_count,
                     "isLiked": False,
                     "isCollected": False,
-                    "createdAt": post.created_at.isoformat()
-                    if post.created_at
-                    else None,
+                    "createdAt": format_utc_time(post.created_at),
                 },
             }
         ), 201

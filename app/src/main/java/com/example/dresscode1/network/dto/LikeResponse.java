@@ -9,6 +9,9 @@ public class LikeResponse {
     
     @SerializedName("isCollected")
     private boolean isCollected;
+    
+    @SerializedName("isFollowing")
+    private boolean isFollowing;
 
     public boolean isOk() {
         return ok;
@@ -40,6 +43,14 @@ public class LikeResponse {
 
     public void setCollected(boolean collected) {
         isCollected = collected;
+    }
+
+    public boolean isFollowing() {
+        return isFollowing;
+    }
+
+    public void setFollowing(boolean following) {
+        isFollowing = following;
     }
 }
 

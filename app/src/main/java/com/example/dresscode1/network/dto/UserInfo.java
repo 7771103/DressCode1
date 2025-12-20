@@ -30,6 +30,15 @@ public class UserInfo {
     @SerializedName("collectCount")
     private int collectCount;
 
+    @SerializedName("followingCount")
+    private int followingCount;
+
+    @SerializedName("followerCount")
+    private int followerCount;
+
+    @SerializedName("isFollowing")
+    private boolean isFollowing;
+
     public int getId() {
         return id;
     }
@@ -100,6 +109,30 @@ public class UserInfo {
 
     public void setGender(String gender) {
         this.gender = gender;
+    }
+
+    public int getFollowingCount() {
+        return followingCount;
+    }
+
+    public void setFollowingCount(int followingCount) {
+        this.followingCount = followingCount;
+    }
+
+    public int getFollowerCount() {
+        return followerCount;
+    }
+
+    public void setFollowerCount(int followerCount) {
+        this.followerCount = followerCount;
+    }
+
+    public boolean isFollowing() {
+        return isFollowing;
+    }
+
+    public void setFollowing(boolean following) {
+        isFollowing = following;
     }
 }
 

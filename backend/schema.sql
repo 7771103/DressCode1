@@ -73,4 +73,18 @@ CREATE TABLE IF NOT EXISTS `comments` (
   CONSTRAINT `fk_comments_post` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- 关注表
+CREATE TABLE IF NOT EXISTS `follows` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `follower_id` INT NOT NULL,
+  `following_id` INT NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_follows_follower_following` (`follower_id`, `following_id`),
+  KEY `idx_follower_id` (`follower_id`),
+  KEY `idx_following_id` (`following_id`),
+  CONSTRAINT `fk_follows_follower` FOREIGN KEY (`follower_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_follows_following` FOREIGN KEY (`following_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 

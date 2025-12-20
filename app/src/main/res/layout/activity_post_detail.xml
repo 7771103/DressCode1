@@ -54,40 +54,64 @@
                         android:gravity="center_vertical"
                         android:layout_marginBottom="12dp">
 
-                        <ImageView
-                            android:id="@+id/ivUserAvatar"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:scaleType="centerCrop"
-                            android:background="@drawable/ic_launcher_background"
-                            android:backgroundTint="@color/primary_blue_gray"
-                            android:layout_marginEnd="12dp"
-                            android:contentDescription="用户头像" />
-
                         <LinearLayout
+                            android:id="@+id/llUserInfo"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:orientation="vertical">
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:background="?attr/selectableItemBackground"
+                            android:padding="4dp">
 
-                            <TextView
-                                android:id="@+id/tvUserNickname"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="用户名"
-                                android:textColor="@color/text_primary_dark"
-                                android:textSize="16sp"
-                                android:textStyle="bold" />
+                            <ImageView
+                                android:id="@+id/ivUserAvatar"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:scaleType="centerCrop"
+                                android:background="@drawable/ic_launcher_background"
+                                android:backgroundTint="@color/primary_blue_gray"
+                                android:layout_marginEnd="12dp"
+                                android:contentDescription="用户头像" />
 
-                            <TextView
-                                android:id="@+id/tvCreatedAt"
-                                android:layout_width="wrap_content"
+                            <LinearLayout
+                                android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:text="2小时前"
-                                android:textColor="@color/text_tertiary"
-                                android:textSize="12sp"
-                                android:layout_marginTop="4dp" />
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/tvUserNickname"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="用户名"
+                                    android:textColor="@color/text_primary_dark"
+                                    android:textSize="16sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvCreatedAt"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="2小时前"
+                                    android:textColor="@color/text_tertiary"
+                                    android:textSize="12sp"
+                                    android:layout_marginTop="4dp" />
+                            </LinearLayout>
                         </LinearLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnFollow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="关注"
+                            android:textSize="14sp"
+                            android:minWidth="0dp"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="16dp"
+                            android:visibility="gone" />
                     </LinearLayout>
 
                     <!-- 帖子内容 -->

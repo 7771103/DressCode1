@@ -32,6 +32,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         void onCommentClick(Post post, int position);
         void onCollectClick(Post post, int position);
         void onPostClick(Post post);
+        void onUserClick(Post post);
     }
 
     public PostAdapter(OnPostActionListener listener, int currentUserId) {
@@ -191,6 +192,15 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                     listener.onCollectClick(post, getAdapterPosition());
                 }
             });
+
+            // 点击用户头像或昵称跳转到用户主页
+            View.OnClickListener userClickListener = v -> {
+                if (listener != null) {
+                    listener.onUserClick(post);
+                }
+            };
+            ivUserAvatar.setOnClickListener(userClickListener);
+            tvUserNickname.setOnClickListener(userClickListener);
 
             // 点击整个item跳转到详情页
             itemView.setOnClickListener(v -> {

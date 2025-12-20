@@ -17,6 +17,7 @@ import com.example.dresscode1.network.dto.UpdateUserRequest;
 import com.example.dresscode1.network.dto.ChangePasswordRequest;
 import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.UserListResponse;
 import com.example.dresscode1.network.dto.UploadAvatarResponse;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
 
@@ -92,7 +93,10 @@ public interface ApiService {
 
     // 获取用户信息
     @GET("/api/user/{userId}")
-    Call<UserInfoResponse> getUserInfo(@Path("userId") int userId);
+    Call<UserInfoResponse> getUserInfo(
+            @Path("userId") int userId,
+            @Query("current_user_id") Integer currentUserId
+    );
 
     // 获取我的点赞列表
     @GET("/api/posts/liked")
@@ -144,6 +148,32 @@ public interface ApiService {
     @POST("/api/posts/upload-image")
     Call<UploadPostImageResponse> uploadPostImage(
             @Part MultipartBody.Part file
+    );
+
+    // 关注/取消关注用户
+    @Headers("Content-Type: application/json")
+    @POST("/api/user/{userId}/follow")
+    Call<LikeResponse> toggleFollow(
+            @Path("userId") int userId,
+            @Body LikeRequest request
+    );
+
+    // 获取关注列表
+    @GET("/api/user/{userId}/following")
+    Call<UserListResponse> getFollowing(
+            @Path("userId") int userId,
+            @Query("page") int page,
+            @Query("page_size") int pageSize,
+            @Query("current_user_id") Integer currentUserId
+    );
+
+    // 获取粉丝列表
+    @GET("/api/user/{userId}/followers")
+    Call<UserListResponse> getFollowers(
+            @Path("userId") int userId,
+            @Query("page") int page,
+            @Query("page_size") int pageSize,
+            @Query("current_user_id") Integer currentUserId
     );
 }
 
