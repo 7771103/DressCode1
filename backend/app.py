@@ -2013,16 +2013,43 @@ def create_app():
             return jsonify({"ok": False, "msg": f"无效的图片来源类型，必须是: {', '.join(valid_source_types)}"}), 400
         
         try:
+            # 对于来自点赞/收藏的衣橱项，获取原始时间
+            action_time = None
+            if source_type in ["liked_post", "collected_post", "liked_and_collected"] and post_id:
+                # 获取点赞时间
+                like = Like.query.filter_by(user_id=user_id, post_id=post_id).first()
+                like_time = like.created_at if like else None
+                
+                # 获取收藏时间
+                collection = Collection.query.filter_by(user_id=user_id, post_id=post_id).first()
+                collect_time = collection.created_at if collection else None
+                
+                # 根据source_type确定使用哪个时间
+                if source_type == "liked_and_collected":
+                    # 对于同时点赞和收藏的，使用较早的时间
+                    if like_time and collect_time:
+                        action_time = min(like_time, collect_time)
+                    else:
+                        action_time = like_time or collect_time
+                elif source_type == "liked_post":
+                    action_time = like_time
+                elif source_type == "collected_post":
+                    action_time = collect_time
+            
             # 检查是否已存在相同的图片（避免重复添加）
             existing = WardrobeItem.query.filter_by(
                 user_id=user_id,
                 image_path=image_path,
-                source_type=source_type
+                post_id=post_id
             ).first()
             
             if existing:
-                # 如果已存在，更新创建时间（移到最左边）
-                existing.created_at = datetime.utcnow()
+                # 如果已存在，更新source_type，但只在必要时更新创建时间（使用较早的时间）
+                if existing.source_type != source_type:
+                    existing.source_type = source_type
+                # 如果提供了action_time且更早，则更新（保持最早的时间）
+                if action_time and (not existing.created_at or action_time < existing.created_at):
+                    existing.created_at = action_time
                 db.session.commit()
                 return jsonify({
                     "ok": True,
@@ -2036,12 +2063,13 @@ def create_app():
                     }
                 }), 200
             
-            # 创建新的衣橱图片记录
+            # 创建新的衣橱图片记录，使用原始时间（如果可用）
             wardrobe_item = WardrobeItem(
                 user_id=user_id,
                 image_path=image_path,
                 source_type=source_type,
-                post_id=post_id if post_id else None
+                post_id=post_id if post_id else None,
+                created_at=action_time if action_time else datetime.utcnow()
             )
             db.session.add(wardrobe_item)
             db.session.commit()
@@ -2072,36 +2100,44 @@ def create_app():
             return jsonify({"ok": False, "msg": "需要登录"}), 401
         
         try:
-            # 获取用户点赞的帖子
-            liked_posts = (
-                db.session.query(Post)
+            # 获取用户点赞的帖子及其点赞时间
+            liked_posts_with_time = (
+                db.session.query(Post, Like.created_at.label('like_time'))
                 .join(Like, Post.id == Like.post_id)
                 .filter(Like.user_id == user_id)
                 .all()
             )
             
-            # 获取用户收藏的帖子
-            collected_posts = (
-                db.session.query(Post)
+            # 获取用户收藏的帖子及其收藏时间
+            collected_posts_with_time = (
+                db.session.query(Post, Collection.created_at.label('collect_time'))
                 .join(Collection, Post.id == Collection.post_id)
                 .filter(Collection.user_id == user_id)
                 .all()
             )
             
+            # 创建字典以便快速查找
+            liked_dict = {post.id: (post, like_time) for post, like_time in liked_posts_with_time}
+            collected_dict = {post.id: (post, collect_time) for post, collect_time in collected_posts_with_time}
+            
             # 创建集合以便快速查找
-            liked_post_ids = {post.id for post in liked_posts}
-            collected_post_ids = {post.id for post in collected_posts}
+            liked_post_ids = set(liked_dict.keys())
+            collected_post_ids = set(collected_dict.keys())
             
             added_count = 0
             updated_count = 0
             
             # 处理点赞的帖子
-            for post in liked_posts:
+            for post_id, (post, like_time) in liked_dict.items():
                 # 判断是否同时被点赞和收藏
-                if post.id in collected_post_ids:
+                if post_id in collected_post_ids:
                     source_type = "liked_and_collected"
+                    # 对于同时点赞和收藏的，使用较早的时间
+                    collect_time = collected_dict[post_id][1]
+                    action_time = min(like_time, collect_time) if like_time and collect_time else (like_time or collect_time)
                 else:
                     source_type = "liked_post"
+                    action_time = like_time
                 
                 # 检查是否已存在
                 existing = WardrobeItem.query.filter_by(
@@ -2111,25 +2147,38 @@ def create_app():
                 ).first()
                 
                 if existing:
-                    # 如果已存在，更新source_type和创建时间
+                    # 保存原始source_type用于判断
+                    original_source_type = existing.source_type
+                    # 如果已存在，更新source_type
                     if existing.source_type != source_type:
                         existing.source_type = source_type
-                    existing.created_at = datetime.utcnow()
+                    # 对于来自点赞/收藏的记录，总是使用原始时间（点赞/收藏的时间）
+                    # 因为这是用户真正操作的时间，应该用于排序
+                    if action_time:
+                        # 如果现有记录来自其他方式（如post_try），保持更早的时间
+                        if original_source_type in ["post_try", "gallery", "camera"]:
+                            # 保持更早的时间
+                            if not existing.created_at or action_time < existing.created_at:
+                                existing.created_at = action_time
+                        else:
+                            # 对于来自点赞/收藏的记录，总是使用原始时间
+                            existing.created_at = action_time
                     updated_count += 1
                 else:
-                    # 创建新记录
+                    # 创建新记录，使用点赞/收藏的原始时间
                     wardrobe_item = WardrobeItem(
                         user_id=user_id,
                         image_path=post.image_path,
                         source_type=source_type,
-                        post_id=post.id
+                        post_id=post.id,
+                        created_at=action_time if action_time else datetime.utcnow()
                     )
                     db.session.add(wardrobe_item)
                     added_count += 1
             
             # 处理只收藏的帖子（不包含已点赞的）
-            for post in collected_posts:
-                if post.id not in liked_post_ids:
+            for post_id, (post, collect_time) in collected_dict.items():
+                if post_id not in liked_post_ids:
                     # 检查是否已存在
                     existing = WardrobeItem.query.filter_by(
                         user_id=user_id,
@@ -2138,18 +2187,30 @@ def create_app():
                     ).first()
                     
                     if existing:
-                        # 如果已存在，更新source_type和创建时间
+                        # 保存原始source_type用于判断
+                        original_source_type = existing.source_type
+                        # 如果已存在，更新source_type
                         if existing.source_type != "collected_post":
                             existing.source_type = "collected_post"
-                        existing.created_at = datetime.utcnow()
+                        # 对于来自收藏的记录，总是使用原始时间（收藏的时间）
+                        if collect_time:
+                            # 如果现有记录来自其他方式（如post_try），保持更早的时间
+                            if original_source_type in ["post_try", "gallery", "camera"]:
+                                # 保持更早的时间
+                                if not existing.created_at or collect_time < existing.created_at:
+                                    existing.created_at = collect_time
+                            else:
+                                # 对于来自收藏的记录，总是使用原始时间
+                                existing.created_at = collect_time
                         updated_count += 1
                     else:
-                        # 创建新记录
+                        # 创建新记录，使用收藏的原始时间
                         wardrobe_item = WardrobeItem(
                             user_id=user_id,
                             image_path=post.image_path,
                             source_type="collected_post",
-                            post_id=post.id
+                            post_id=post.id,
+                            created_at=collect_time if collect_time else datetime.utcnow()
                         )
                         db.session.add(wardrobe_item)
                         added_count += 1

@@ -16,33 +16,40 @@ import retrofit2.converter.gson.GsonConverterFactory;
 
 public class WeatherApiClient {
     
-    // 使用官方公共 API Host（推荐给学生/Android 项目）
-    // 2026年1月前都可以正常使用
-    // 确保 API Key 已授权「实时天气」权限
-    private static final String BASE_URL = "https://api.qweather.com/"; // 官方公共 Host
-    private static final String API_KEY = "4810a9f1ca414a0186e59c39ab5eb427";
+    // 使用专属 API Host
+    private static final String BASE_URL = "https://pn3qqqyqfa.re.qweatherapi.com/";
+    
+    // API Key
+    private static final String API_KEY = "c605b24176444e8a9c1d16195729e862";
     
     private static WeatherApiService service;
 
+    /**
+     * 获取WeatherApiService实例
+     * @return WeatherApiService
+     */
     public static WeatherApiService getService() {
         if (service == null) {
             HttpLoggingInterceptor logging = new HttpLoggingInterceptor(message -> Log.d("WeatherAPI", message));
             logging.setLevel(HttpLoggingInterceptor.Level.BODY);
 
-            // 添加 API Key 到 URL 查询参数的拦截器
-            // 官方公共 Host 使用 ?key=xxx 方式传递 API Key
+            // 添加 API Key 到请求URL的拦截器
             Interceptor apiKeyInterceptor = new Interceptor() {
                 @Override
                 public Response intercept(Chain chain) throws IOException {
                     Request original = chain.request();
-                    // 使用 HttpUrl.Builder 正确添加 key 参数
-                    HttpUrl newUrl = original.url().newBuilder()
+                    HttpUrl originalHttpUrl = original.url();
+                    
+                    // 在URL中添加key参数
+                    HttpUrl newUrl = originalHttpUrl.newBuilder()
                             .addQueryParameter("key", API_KEY)
                             .build();
                     
                     Request request = original.newBuilder()
                             .url(newUrl)
                             .build();
+                    
+                    Log.d("WeatherAPI", "API key added to request: " + newUrl);
                     return chain.proceed(request);
                 }
             };
@@ -63,10 +70,6 @@ public class WeatherApiClient {
             service = retrofit.create(WeatherApiService.class);
         }
         return service;
-    }
-
-    public static String getApiKey() {
-        return API_KEY;
     }
 
     private WeatherApiClient() {

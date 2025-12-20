@@ -56,6 +56,19 @@
             app:layout_constraintEnd_toEndOf="parent"
             android:layout_margin="8dp" />
 
+        <ImageView
+            android:id="@+id/ivDeleteButton"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:src="@drawable/ic_delete"
+            android:background="@drawable/delete_button_background"
+            android:padding="6dp"
+            android:contentDescription="删除照片"
+            android:tint="@color/white"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_margin="8dp" />
+
     </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.cardview.widget.CardView>

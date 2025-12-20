@@ -11,6 +11,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.example.dresscode1.R;
+import com.example.dresscode1.model.UserPhotoItem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,9 +21,10 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
     private static final int TYPE_ADD_BUTTON = 0;
     private static final int TYPE_ITEM = 1;
 
-    private List<Uri> photoUris = new ArrayList<>();
+    private List<UserPhotoItem> photoItems = new ArrayList<>();
     private OnItemClickListener listener;
     private OnAddButtonClickListener addButtonListener;
+    private OnDeleteClickListener deleteListener;
     private int selectedPosition = -1;
 
     public interface OnItemClickListener {
@@ -33,29 +35,49 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         void onAddButtonClick();
     }
 
-    public UserPhotoAdapter(OnItemClickListener listener, OnAddButtonClickListener addButtonListener) {
-        this.listener = listener;
-        this.addButtonListener = addButtonListener;
+    public interface OnDeleteClickListener {
+        void onDeleteClick(int photoId, int position);
     }
 
-    public void setPhotos(List<Uri> photos) {
-        this.photoUris = photos != null ? photos : new ArrayList<>();
+    public UserPhotoAdapter(OnItemClickListener listener, OnAddButtonClickListener addButtonListener, OnDeleteClickListener deleteListener) {
+        this.listener = listener;
+        this.addButtonListener = addButtonListener;
+        this.deleteListener = deleteListener;
+    }
+
+    public void setPhotos(List<UserPhotoItem> photos) {
+        this.photoItems = photos != null ? photos : new ArrayList<>();
         notifyDataSetChanged();
     }
 
-    public void addPhoto(Uri photoUri) {
-        if (photoUris == null) {
-            photoUris = new ArrayList<>();
+    public void addPhoto(UserPhotoItem photoItem) {
+        if (photoItems == null) {
+            photoItems = new ArrayList<>();
         }
-        photoUris.add(photoUri);
-        notifyItemInserted(photoUris.size() - 1);
+        photoItems.add(photoItem);
+        notifyItemInserted(photoItems.size() - 1);
+    }
+
+    public void removePhoto(int position) {
+        if (position >= 0 && position < photoItems.size()) {
+            photoItems.remove(position);
+            notifyItemRemoved(position);
+            // 通知后续项目位置变化
+            if (position < photoItems.size()) {
+                notifyItemRangeChanged(position, photoItems.size() - position);
+            }
+        }
     }
 
     public Uri getSelectedPhoto() {
-        if (selectedPosition >= 0 && selectedPosition < photoUris.size()) {
-            return photoUris.get(selectedPosition);
+        if (selectedPosition >= 0 && selectedPosition < photoItems.size()) {
+            return photoItems.get(selectedPosition).getUri();
         }
         return null;
+    }
+
+    public int getSelectedPosition() {
+        return selectedPosition;
     }
 
     public void setSelectedPosition(int position) {
@@ -94,8 +116,8 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         if (holder instanceof AddButtonViewHolder) {
             ((AddButtonViewHolder) holder).bind();
         } else if (holder instanceof ItemViewHolder) {
-            if (position < photoUris.size()) {
-                ((ItemViewHolder) holder).bind(photoUris.get(position), position);
+            if (position < photoItems.size()) {
+                ((ItemViewHolder) holder).bind(photoItems.get(position), position);
             }
         }
     }
@@ -103,7 +125,7 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
     @Override
     public int getItemCount() {
         // 照片数量 + 加号按钮
-        return (photoUris != null ? photoUris.size() : 0) + 1;
+        return (photoItems != null ? photoItems.size() : 0) + 1;
     }
 
     class AddButtonViewHolder extends RecyclerView.ViewHolder {
@@ -128,6 +150,7 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         private View itemView;
         private View selectedIndicator;
         private ImageView ivCheckMark;
+        private ImageView ivDeleteButton;
         private androidx.cardview.widget.CardView cardView;
 
         public ItemViewHolder(@NonNull View itemView) {
@@ -136,13 +159,14 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
             ivPhoto = itemView.findViewById(R.id.ivPhoto);
             selectedIndicator = itemView.findViewById(R.id.selectedIndicator);
             ivCheckMark = itemView.findViewById(R.id.ivCheckMark);
+            ivDeleteButton = itemView.findViewById(R.id.ivDeleteButton);
             cardView = itemView.findViewById(R.id.cardView);
         }
 
-        public void bind(Uri photoUri, int position) {
+        public void bind(UserPhotoItem photoItem, int position) {
             // 加载图片 - 使用 fitCenter 确保图片完整显示
             Glide.with(itemView.getContext())
-                    .load(photoUri)
+                    .load(photoItem.getUri())
                     .fitCenter()
                     .placeholder(android.R.drawable.ic_menu_gallery)
                     .error(android.R.drawable.ic_menu_report_image)
@@ -172,9 +196,18 @@ public class UserPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
             itemView.setOnClickListener(v -> {
                 setSelectedPosition(position);
                 if (listener != null) {
-                    listener.onItemClick(photoUri, position);
+                    listener.onItemClick(photoItem.getUri(), position);
                 }
             });
+
+            // 删除按钮点击事件
+            if (ivDeleteButton != null) {
+                ivDeleteButton.setOnClickListener(v -> {
+                    if (deleteListener != null) {
+                        deleteListener.onDeleteClick(photoItem.getId(), position);
+                    }
+                });
+            }
         }
     }
 }

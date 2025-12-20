@@ -29,6 +29,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    
+    packaging {
+        resources {
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
 }
 
 dependencies {
@@ -58,6 +64,17 @@ dependencies {
     
     // CircleImageView for circular avatars
     implementation(libs.circleimageview)
+    
+    // JWT for QWeather API authentication
+    implementation(libs.jwt)
+    runtimeOnly(libs.jwt.impl)
+    runtimeOnly(libs.jwt.jackson)
+    // BouncyCastle for Ed25519 support
+    implementation(libs.bouncycastle)
+    // BouncyCastle PKIX for PEM parsing (openssl support)
+    implementation(libs.bouncycastle.pkix)
+    // BouncyCastle Util for Ed25519 utilities
+    implementation(libs.bouncycastle.util)
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)

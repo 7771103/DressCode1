@@ -68,8 +68,136 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         if (items == null) {
             items = new ArrayList<>();
         }
-        items.add(0, item);  // 添加到最前面（最左边）
-        notifyItemInserted(0);
+        // 按时间插入到正确位置，最新的在最前面（最左边）
+        int insertPosition = findInsertPosition(item);
+        items.add(insertPosition, item);
+        notifyItemInserted(insertPosition);
+    }
+    
+    /**
+     * 根据时间找到新项应该插入的位置，保持按时间降序排序
+     * 返回应该插入的位置索引
+     */
+    private int findInsertPosition(WardrobeItem newItem) {
+        if (items.isEmpty()) {
+            return 0;
+        }
+        
+        String newTime = newItem.getCreatedAt();
+        if (newTime == null) {
+            // 如果新项没有时间，插入到最后
+            return items.size();
+        }
+        
+        // 找到第一个时间小于新项时间的位置
+        for (int i = 0; i < items.size(); i++) {
+            WardrobeItem existingItem = items.get(i);
+            String existingTime = existingItem.getCreatedAt();
+            
+            if (existingTime == null) {
+                // 如果已有项没有时间，新项应该排在它前面
+                return i;
+            }
+            
+            // 比较时间，新项时间更大（更新）则应该排在前面
+            int compareResult = compareTime(newTime, existingTime);
+            if (compareResult > 0) {
+                // 新项时间更新，应该插入到这个位置
+                return i;
+            }
+        }
+        
+        // 新项时间最旧，插入到最后
+        return items.size();
+    }
+    
+    /**
+     * 比较两个时间字符串
+     * @return 正数表示 time1 > time2（time1 更新），负数表示 time1 < time2（time1 更旧），0 表示相等
+     */
+    private int compareTime(String time1, String time2) {
+        if (time1 == null && time2 == null) {
+            return 0;
+        }
+        if (time1 == null) {
+            return -1;
+        }
+        if (time2 == null) {
+            return 1;
+        }
+        
+        try {
+            String t1 = normalizeTimeString(time1);
+            String t2 = normalizeTimeString(time2);
+            
+            String[] formats = {
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS"
+            };
+            
+            java.util.Date date1 = null;
+            java.util.Date date2 = null;
+            
+            for (String format : formats) {
+                try {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(format, java.util.Locale.getDefault());
+                    if (date1 == null) {
+                        date1 = sdf.parse(t1);
+                    }
+                    if (date2 == null) {
+                        date2 = sdf.parse(t2);
+                    }
+                    if (date1 != null && date2 != null) {
+                        break;
+                    }
+                } catch (java.text.ParseException e) {
+                    // 继续尝试下一个格式
+                }
+            }
+            
+            if (date1 != null && date2 != null) {
+                return date1.compareTo(date2);
+            }
+        } catch (Exception e) {
+            // 解析失败，按字符串比较
+            return time1.compareTo(time2);
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * 规范化时间字符串，移除时区标识和毫秒部分
+     */
+    private String normalizeTimeString(String timeStr) {
+        if (timeStr == null) {
+            return "";
+        }
+        String result = timeStr.trim();
+        // 移除时区标识
+        if (result.contains("Z")) {
+            result = result.replace("Z", "");
+        }
+        if (result.contains("+")) {
+            result = result.substring(0, result.indexOf("+"));
+        }
+        if (result.contains("-") && result.lastIndexOf("-") > 10) {
+            // 处理时区偏移，如 "-05:00"
+            int lastDashIndex = result.lastIndexOf("-");
+            if (lastDashIndex > 10 && result.length() > lastDashIndex + 5) {
+                String potentialOffset = result.substring(lastDashIndex);
+                if (potentialOffset.matches("-[0-9]{2}:[0-9]{2}")) {
+                    result = result.substring(0, lastDashIndex);
+                }
+            }
+        }
+        // 处理毫秒部分，只保留到秒
+        if (result.contains(".")) {
+            int dotIndex = result.indexOf(".");
+            result = result.substring(0, dotIndex);
+        }
+        return result;
     }
 
     @Override

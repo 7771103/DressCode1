@@ -67,6 +67,16 @@
                 android:layout_height="wrap_content"
                 android:text="加载中..."
                 android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginEnd="6dp" />
+
+            <!-- 城市名称 -->
+            <TextView
+                android:id="@+id/tvWeatherCity"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--"
+                android:textSize="12sp"
                 android:textColor="@color/text_secondary" />
         </LinearLayout>
 

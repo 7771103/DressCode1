@@ -13,6 +13,7 @@ import android.location.LocationManager;
 import android.location.LocationListener;
 import android.location.Geocoder;
 import android.location.Address;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import android.provider.MediaStore;
@@ -65,6 +66,7 @@ import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.WeatherApiClient;
 import com.example.dresscode1.network.WeatherApiService;
 import com.example.dresscode1.network.dto.WeatherResponse;
+import com.example.dresscode1.network.dto.CityLookupResponse;
 import com.example.dresscode1.network.dto.Comment;
 import com.example.dresscode1.network.dto.CommentListResponse;
 import com.example.dresscode1.network.dto.CommentRequest;
@@ -137,6 +139,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private ImageView ivWeatherIcon;
     private TextView tvWeatherTemp;
     private TextView tvWeatherText;
+    private TextView tvWeatherCity;
     private RecyclerView rvPosts;
     private ConstraintLayout svAgent;
     private ConstraintLayout svWardrobe;
@@ -190,7 +193,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private Bitmap pendingSaveBitmap;  // 待保存的图片（用于权限授予后保存）
     private WardrobeItemAdapter wardrobeItemAdapter;
     private UserPhotoAdapter userPhotoAdapter;
-    private java.util.List<Uri> userPhotoUris = new java.util.ArrayList<>();
+    private java.util.List<com.example.dresscode1.model.UserPhotoItem> userPhotoItems = new java.util.ArrayList<>();
     
     private PostAdapter postAdapter;
     private PostAdapter myPostAdapter;
@@ -201,6 +204,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private String currentHomeFeedTab = "recommend"; // recommend, follow
     private String currentProfileTab = "posts"; // posts, likes, collections
     private String conversationId; // 对话会话ID
+    
+    // 衣橱排序相关
+    private String wardrobeSortMode = "time"; // time: 按时间排序（默认）
+    private List<WardrobeItem> cachedWardrobeItems = null; // 缓存的衣橱数据
+    private boolean wardrobeItemsLoaded = false; // 是否已加载过衣橱数据
     
     // 分页加载相关变量
     private static final int PAGE_SIZE = 10;
@@ -232,6 +240,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_home);
 
@@ -536,7 +545,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         if (response.isSuccessful() && response.body() != null) {
                             WardrobeItemListResponse listResponse = response.body();
                             if (listResponse.isOk() && listResponse.getData() != null) {
-                                wardrobeItemAdapter.setItems(listResponse.getData());
+                                // 保存原始数据到缓存
+                                List<WardrobeItem> items = new ArrayList<>(listResponse.getData());
+                                cachedWardrobeItems = new ArrayList<>(items);
+                                wardrobeItemsLoaded = true;
+                                
+                                // 应用当前的排序方式
+                                applyWardrobeSort(items);
                             }
                         }
                     }
@@ -546,6 +561,98 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         // 忽略错误
                     }
                 });
+    }
+    
+    /**
+     * 应用衣橱排序，根据当前的排序模式对数据进行排序
+     */
+    private void applyWardrobeSort(List<WardrobeItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        
+        // 创建副本以避免修改原始数据
+        List<WardrobeItem> sortedItems = new ArrayList<>(items);
+        
+        // 根据排序模式进行排序
+        if ("time".equals(wardrobeSortMode)) {
+            // 按时间排序，最新的在前（最左边）
+            sortWardrobeItemsByTime(sortedItems);
+        }
+        // 可以在这里添加其他排序模式，比如按来源类型排序等
+        
+        // 更新适配器
+        wardrobeItemAdapter.setItems(sortedItems);
+    }
+    
+    /**
+     * 按创建时间对衣橱图片列表进行排序，最新的在前（最左边）
+     * 按照上传/拍照/点赞/收藏/尝试的时间排序
+     */
+    private void sortWardrobeItemsByTime(List<WardrobeItem> items) {
+        if (items == null || items.size() <= 1) {
+            return;
+        }
+        
+        items.sort((item1, item2) -> {
+            String time1 = item1.getCreatedAt();
+            String time2 = item2.getCreatedAt();
+            
+            // 如果时间都为空，保持原顺序
+            if (time1 == null && time2 == null) {
+                return 0;
+            }
+            if (time1 == null) {
+                return 1; // time1 排在后面
+            }
+            if (time2 == null) {
+                return -1; // time2 排在后面
+            }
+            
+            // 解析时间字符串并比较
+            try {
+                // 处理时区标识和毫秒部分
+                String t1 = normalizeTimeString(time1);
+                String t2 = normalizeTimeString(time2);
+                
+                // 尝试多种时间格式
+                String[] formats = {
+                    "yyyy-MM-dd'T'HH:mm:ss",
+                    "yyyy-MM-dd HH:mm:ss",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS"
+                };
+                
+                java.util.Date date1 = null;
+                java.util.Date date2 = null;
+                
+                for (String format : formats) {
+                    try {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(format, java.util.Locale.getDefault());
+                        if (date1 == null) {
+                            date1 = sdf.parse(t1);
+                        }
+                        if (date2 == null) {
+                            date2 = sdf.parse(t2);
+                        }
+                        if (date1 != null && date2 != null) {
+                            break;
+                        }
+                    } catch (java.text.ParseException e) {
+                        // 继续尝试下一个格式
+                    }
+                }
+                
+                if (date1 != null && date2 != null) {
+                    // 降序排序：时间大的（新的）排在前面（最左边）
+                    return date2.compareTo(date1);
+                }
+            } catch (Exception e) {
+                // 解析失败，按字符串比较（降序）
+                return time2.compareTo(time1);
+            }
+            
+            return 0;
+        });
     }
     
     private void loadUserPhotos() {
@@ -560,14 +667,18 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         if (response.isSuccessful() && response.body() != null) {
                             UserPhotoListResponse listResponse = response.body();
                             if (listResponse.isOk() && listResponse.getPhotos() != null) {
-                                // 将服务器返回的照片URL转换为Uri
-                                userPhotoUris.clear();
+                                // 将服务器返回的照片URL转换为Uri，并保存照片ID和时间
+                                userPhotoItems.clear();
                                 for (UserPhoto photo : listResponse.getPhotos()) {
                                     String imageUrl = ApiClient.getBaseUrl().substring(0, ApiClient.getBaseUrl().length() - 1) + photo.getImagePath();
                                     Uri photoUri = Uri.parse(imageUrl);
-                                    userPhotoUris.add(photoUri);
+                                    com.example.dresscode1.model.UserPhotoItem photoItem = 
+                                        new com.example.dresscode1.model.UserPhotoItem(photo.getId(), photoUri, photo.getCreatedAt());
+                                    userPhotoItems.add(photoItem);
                                 }
-                                userPhotoAdapter.setPhotos(userPhotoUris);
+                                // 按时间排序：最新的在前（降序）
+                                sortPhotosByTime(userPhotoItems);
+                                userPhotoAdapter.setPhotos(userPhotoItems);
                             }
                         }
                     }
@@ -577,6 +688,162 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         // 忽略错误
                     }
                 });
+    }
+    
+    /**
+     * 按创建时间对照片列表进行排序，最新的在前（降序）
+     * 按照上传/拍照的时间排序，越最近的照片越靠前
+     */
+    private void sortPhotosByTime(List<com.example.dresscode1.model.UserPhotoItem> photos) {
+        if (photos == null || photos.size() <= 1) {
+            return;
+        }
+        
+        photos.sort((photo1, photo2) -> {
+            String time1 = photo1.getCreatedAt();
+            String time2 = photo2.getCreatedAt();
+            
+            // 如果时间都为空，保持原顺序
+            if (time1 == null && time2 == null) {
+                return 0;
+            }
+            if (time1 == null) {
+                return 1; // time1 排在后面
+            }
+            if (time2 == null) {
+                return -1; // time2 排在后面
+            }
+            
+            // 解析时间字符串并比较
+            try {
+                // 处理时区标识和毫秒部分
+                String t1 = normalizeTimeString(time1);
+                String t2 = normalizeTimeString(time2);
+                
+                // 尝试多种时间格式
+                String[] formats = {
+                    "yyyy-MM-dd'T'HH:mm:ss",
+                    "yyyy-MM-dd HH:mm:ss",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS"
+                };
+                
+                java.util.Date date1 = null;
+                java.util.Date date2 = null;
+                
+                for (String format : formats) {
+                    try {
+                        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(format, java.util.Locale.getDefault());
+                        if (date1 == null) {
+                            date1 = sdf.parse(t1);
+                        }
+                        if (date2 == null) {
+                            date2 = sdf.parse(t2);
+                        }
+                        if (date1 != null && date2 != null) {
+                            break;
+                        }
+                    } catch (java.text.ParseException e) {
+                        // 继续尝试下一个格式
+                    }
+                }
+                
+                if (date1 != null && date2 != null) {
+                    // 降序排序：时间大的（新的）排在前面
+                    return date2.compareTo(date1);
+                }
+            } catch (Exception e) {
+                // 解析失败，按字符串比较（降序）
+                return time2.compareTo(time1);
+            }
+            
+            return 0;
+        });
+    }
+    
+    /**
+     * 规范化时间字符串，移除时区标识和毫秒部分
+     */
+    private String normalizeTimeString(String timeStr) {
+        if (timeStr == null) {
+            return "";
+        }
+        String result = timeStr.trim();
+        // 移除时区标识
+        if (result.contains("Z")) {
+            result = result.replace("Z", "");
+        }
+        if (result.contains("+")) {
+            result = result.substring(0, result.indexOf("+"));
+        }
+        if (result.contains("-") && result.lastIndexOf("-") > 10) {
+            // 处理时区偏移，如 "-05:00"
+            int lastDashIndex = result.lastIndexOf("-");
+            if (lastDashIndex > 10 && result.length() > lastDashIndex + 5) {
+                String potentialOffset = result.substring(lastDashIndex);
+                if (potentialOffset.matches("-[0-9]{2}:[0-9]{2}")) {
+                    result = result.substring(0, lastDashIndex);
+                }
+            }
+        }
+        // 处理毫秒部分，只保留到秒
+        if (result.contains(".")) {
+            int dotIndex = result.indexOf(".");
+            result = result.substring(0, dotIndex);
+        }
+        return result;
+    }
+    
+    private void deleteUserPhoto(int photoId, int position) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 显示确认对话框
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除照片")
+                .setMessage("确定要删除这张照片吗？")
+                .setPositiveButton("删除", (dialog, which) -> {
+                    // 调用删除API
+                    ApiClient.getService().deleteUserPhoto(currentUserId, photoId)
+                            .enqueue(new Callback<BaseResponse>() {
+                                @Override
+                                public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                                    if (response.isSuccessful() && response.body() != null) {
+                                        BaseResponse deleteResponse = response.body();
+                                        if (deleteResponse.isOk()) {
+                                            // 删除成功，从列表中移除
+                                            int selectedPos = userPhotoAdapter.getSelectedPosition();
+                                            userPhotoAdapter.removePhoto(position);
+                                            
+                                            // 如果删除的是选中的照片，清除选中状态
+                                            if (position == selectedPos) {
+                                                selectedUserPhotoUri = null;
+                                                userPhotoAdapter.setSelectedPosition(-1);
+                                                btnConfirmTryOn.setVisibility(View.GONE);
+                                            } else if (position < selectedPos) {
+                                                // 如果删除的照片在选中照片之前，需要调整选中位置
+                                                userPhotoAdapter.setSelectedPosition(selectedPos - 1);
+                                            }
+                                            Toast.makeText(HomeActivity.this, "照片已删除", Toast.LENGTH_SHORT).show();
+                                        } else {
+                                            String errorMsg = deleteResponse.getMsg() != null ? deleteResponse.getMsg() : "删除失败";
+                                            Toast.makeText(HomeActivity.this, errorMsg, Toast.LENGTH_SHORT).show();
+                                        }
+                                    } else {
+                                        Toast.makeText(HomeActivity.this, "删除失败，请稍后重试", Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+
+                                @Override
+                                public void onFailure(Call<BaseResponse> call, Throwable t) {
+                                    Log.e("HomeActivity", "删除照片失败", t);
+                                    Toast.makeText(HomeActivity.this, "删除失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
     
     private void uploadUserPhoto(Uri imageUri) {
@@ -754,6 +1021,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         ivWeatherIcon = findViewById(R.id.ivWeatherIcon);
         tvWeatherTemp = findViewById(R.id.tvWeatherTemp);
         tvWeatherText = findViewById(R.id.tvWeatherText);
+        tvWeatherCity = findViewById(R.id.tvWeatherCity);
         rvPosts = findViewById(R.id.rvPosts);
         svAgent = findViewById(R.id.svAgent);
         svWardrobe = findViewById(R.id.svWardrobe);
@@ -823,6 +1091,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             () -> {
                 // 加号按钮点击 - 添加用户照片
                 showAddUserPhotoDialog();
+            },
+            (photoId, position) -> {
+                // 删除按钮点击 - 删除用户照片
+                deleteUserPhoto(photoId, position);
             }
         );
         LinearLayoutManager userPhotoLayoutManager = new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false);
@@ -1183,6 +1455,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svAgent.setVisibility(View.GONE);
         svWardrobe.setVisibility(View.VISIBLE);
         svProfile.setVisibility(View.GONE);
+        
+        // 如果已经加载过数据，先显示缓存的数据（保持排序状态）
+        if (wardrobeItemsLoaded && cachedWardrobeItems != null && !cachedWardrobeItems.isEmpty()) {
+            // 创建副本并应用排序，避免修改缓存
+            List<WardrobeItem> itemsToShow = new ArrayList<>(cachedWardrobeItems);
+            applyWardrobeSort(itemsToShow);
+        }
         
         // 先同步点赞和收藏的帖子到衣橱，然后加载衣橱图片列表
         syncWardrobeFromPosts();
@@ -2660,13 +2939,71 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         }
     }
 
+    private String currentWeatherCity = "--";
+
     private void fetchWeatherByLocation(double latitude, double longitude) {
-        // 使用经纬度格式：纬度,经度
-        String location = String.format(Locale.US, "%.2f,%.2f", latitude, longitude);
-        fetchWeather(location);
+        // 使用经纬度格式：经度,纬度（和风天气API要求格式，提高精度到6位小数）
+        String location = String.format(Locale.US, "%.6f,%.6f", longitude, latitude);
+        Log.d("HomeActivity", "使用经纬度查询天气: " + location);
+        
+        // 先查询城市信息获取城市名称
+        WeatherApiService weatherService = WeatherApiClient.getService();
+        weatherService.lookupCity(location)
+                .enqueue(new retrofit2.Callback<CityLookupResponse>() {
+                    @Override
+                    public void onResponse(retrofit2.Call<CityLookupResponse> call, retrofit2.Response<CityLookupResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            CityLookupResponse cityResponse = response.body();
+                            if ("200".equals(cityResponse.getCode()) && 
+                                cityResponse.getLocation() != null && 
+                                !cityResponse.getLocation().isEmpty()) {
+                                // 获取城市信息
+                                CityLookupResponse.Location cityLocation = cityResponse.getLocation().get(0);
+                                // 优先使用市级名称，如果没有则使用区级名称
+                                String cityName = cityLocation.getAdm2();
+                                if (cityName == null || cityName.isEmpty()) {
+                                    cityName = cityLocation.getName();
+                                }
+                                if (cityName != null && !cityName.isEmpty()) {
+                                    currentWeatherCity = cityName;
+                                    Log.d("HomeActivity", "查询到城市名称: " + cityName);
+                                } else {
+                                    currentWeatherCity = "当前位置";
+                                }
+                            } else {
+                                Log.w("HomeActivity", "城市查询失败，使用默认显示");
+                                currentWeatherCity = "当前位置";
+                            }
+                        } else {
+                            Log.w("HomeActivity", "城市查询请求失败，使用默认显示");
+                            currentWeatherCity = "当前位置";
+                        }
+                        // 无论城市查询是否成功，都继续获取天气数据
+                        fetchWeather(location, true); // 标记为经纬度查询，失败时可回退
+                    }
+
+                    @Override
+                    public void onFailure(retrofit2.Call<CityLookupResponse> call, Throwable t) {
+                        Log.w("HomeActivity", "城市查询异常，使用默认显示", t);
+                        currentWeatherCity = "当前位置";
+                        // 即使城市查询失败，也继续获取天气数据
+                        fetchWeather(location, true);
+                    }
+                });
     }
 
     private void fetchWeather(String location) {
+        // 根据城市ID或名称设置前端展示的城市
+        if ("101010100".equals(location)) {
+            currentWeatherCity = "北京";
+        } else {
+            // 其他情况直接显示 location（如果你传的是城市名，可以直接显示）
+            currentWeatherCity = location;
+        }
+        fetchWeather(location, false);
+    }
+
+    private void fetchWeather(String location, boolean isCoordinate) {
         WeatherApiService weatherService = WeatherApiClient.getService();
         
         weatherService.getNowWeather(location)
@@ -2679,8 +3016,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 updateWeatherUI(weatherResponse.getNow());
                             } else {
                                 Log.e("HomeActivity", "天气API返回错误: " + weatherResponse.getCode());
-                                tvWeatherTemp.setText("--°");
-                                tvWeatherText.setText("获取失败");
+                                // 如果是经纬度查询失败，尝试使用默认城市ID
+                                if (isCoordinate) {
+                                    Log.w("HomeActivity", "经纬度查询失败，回退到默认城市ID");
+                                    fetchWeather("101010100"); // 默认北京
+                                } else {
+                                    tvWeatherTemp.setText("--°");
+                                    tvWeatherText.setText("获取失败");
+                                }
                             }
                         } else {
                             String errorBody = "";
@@ -2701,6 +3044,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 Log.e("HomeActivity", "然后在 WeatherApiClient.java 中替换 BASE_URL");
                                 tvWeatherTemp.setText("--°");
                                 tvWeatherText.setText("需配置API");
+                            } else if (response.code() == 400 && isCoordinate) {
+                                // 经纬度查询失败（400错误），回退到默认城市ID
+                                Log.w("HomeActivity", "经纬度查询失败（400错误），回退到默认城市ID");
+                                fetchWeather("101010100"); // 默认北京
                             } else {
                                 tvWeatherTemp.setText("--°");
                                 tvWeatherText.setText("获取失败");
@@ -2736,6 +3083,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             tvWeatherText.setText(text);
         } else {
             tvWeatherText.setText("--");
+        }
+
+        // 更新城市名称显示
+        if (tvWeatherCity != null) {
+            tvWeatherCity.setText(currentWeatherCity != null ? currentWeatherCity : "--");
         }
         
         // 可以根据天气图标代码设置图标（这里简化处理，使用默认图标）
