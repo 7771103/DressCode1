@@ -160,6 +160,28 @@ def create_app():
         items = label.get("items", [])
         accessories = label.get("accessories", [])
         
+        # 服装关键词（需要换装的物品）
+        clothing_keywords = [
+            # 上衣类
+            "上衣", "衬衫", "t-shirt", "tshirt", "shirt", "blouse", "top", "sweater", 
+            "毛衣", "针织衫", "卫衣", "hoodie", "polo", "tank", "背心", "vest",
+            "吊带", "crop top", "短袖", "长袖", "无袖", "sleeveless",
+            # 外套类
+            "外套", "外衣", "jacket", "coat", "blazer", "suit", "西装", "风衣", 
+            "trenchcoat", "trench coat", "大衣", "overcoat", "夹克", "羽绒服",
+            "down jacket", "皮衣", "leather jacket", "牛仔外套", "denim jacket",
+            # 裙子类
+            "裙子", "dress", "连衣裙", "半身裙", "skirt", "长裙", "短裙", 
+            "midi dress", "maxi dress", "mini dress", "bodycon", "sheath",
+            # 裤子类
+            "裤子", "pants", "trousers", "jeans", "牛仔裤", "leggings", "紧身裤",
+            "wide leg", "阔腿裤", "slim fit", "straight leg", "短裤", "shorts",
+            # 套装类
+            "套装", "suit", "set", "outfit", "look", "ensemble",
+            # 其他服装
+            "连体衣", "jumpsuit", "romper", "bodysuit"
+        ]
+        
         # 配饰关键词（需要试戴的物品）
         accessory_keywords = [
             # 眼镜类
@@ -198,16 +220,23 @@ def create_app():
             # 包类配饰（英文）
             "handbag", "bag", "clutch", "tote", "crossbody", "satchel", 
             "fanny pack", "waist bag", "backpack", "shoulder bag", "messenger bag",
-            "duffle", "holdall", "pouch", "purse", "duffle bag"
+            "duffle", "holdall", "pouch", "purse", "duffle bag",
+            # 鞋子类（鞋子虽然算配饰，但如果items中只有鞋子，应该识别为配饰）
+            "鞋子", "鞋", "shoe", "shoes", "sneakers", "sneaker", "boots", "boot",
+            "pumps", "pump", "heels", "heel", "sandals", "sandal", "flats", "flat",
+            "高跟鞋", "平底鞋", "运动鞋", "靴子", "凉鞋", "拖鞋"
         ]
         
-        # 检查items中是否包含配饰关键词
+        # 检查items中是否包含服装和配饰关键词
         all_items_text = " ".join(items) if isinstance(items, list) else str(items)
         all_accessories_text = " ".join(accessories) if isinstance(accessories, list) else str(accessories)
         combined_text = (all_items_text + " " + all_accessories_text).lower()
+        items_text = all_items_text.lower()
         
+        # 判断items中是否包含服装关键词（优先判断）
+        has_clothing = any(keyword in items_text for keyword in clothing_keywords)
         # 判断是否包含配饰关键词
-        is_accessory = any(keyword in combined_text for keyword in accessory_keywords)
+        has_accessory = any(keyword in combined_text for keyword in accessory_keywords)
         
         # 需要过滤掉的不相关细节关键词（如内衬、里料、标签等）
         irrelevant_keywords = [
@@ -229,7 +258,28 @@ def create_app():
                 filtered.append(item_str)
             return filtered
         
-        if is_accessory:
+        # 优先判断：如果items中包含服装，即使有配饰也应该识别为服装（换装）
+        if has_clothing:
+            # 提取服装描述（优先显示服装，配饰作为补充）
+            clothing_desc = []
+            filtered_items = filter_irrelevant_items(items)
+            for item in filtered_items:
+                item_lower = str(item).lower()
+                # 优先提取服装相关的items
+                if any(keyword in item_lower for keyword in clothing_keywords):
+                    clothing_desc.append(str(item))
+            # 如果服装描述为空，使用所有过滤后的items
+            if not clothing_desc:
+                clothing_desc = filtered_items[:3]
+            else:
+                # 限制服装描述数量，最多3个
+                clothing_desc = clothing_desc[:3]
+            
+            desc = ", ".join(clothing_desc) if clothing_desc else "服装"
+            return "try_on", desc  # try_on表示换装
+        
+        # 如果items中没有服装，但有配饰，识别为配饰（试戴）
+        if has_accessory:
             # 提取配饰描述
             accessory_desc = []
             if accessories:
@@ -238,17 +288,16 @@ def create_app():
                 )
                 accessory_desc.extend(filtered_accessories)
             # 从items中提取配饰相关的
-            for item in (items if isinstance(items, list) else [items]):
+            filtered_items = filter_irrelevant_items(items)
+            for item in filtered_items:
                 item_lower = str(item).lower()
                 if any(keyword in item_lower for keyword in accessory_keywords):
-                    # 再次过滤不相关细节
-                    if not any(keyword in item_lower for keyword in irrelevant_keywords):
-                        accessory_desc.append(str(item))
+                    accessory_desc.append(str(item))
             
             desc = ", ".join(accessory_desc[:3]) if accessory_desc else "配饰"
             return "wear", desc  # wear表示试戴
         
-        # 默认是换装
+        # 默认是换装（如果既没有服装也没有配饰关键词，默认按换装处理）
         filtered_items = filter_irrelevant_items(items)
         clothing_desc = ", ".join(filtered_items[:3]) if filtered_items else "服装"
         return "try_on", clothing_desc  # try_on表示换装
