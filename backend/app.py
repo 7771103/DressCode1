@@ -13,6 +13,7 @@ import requests
 import base64
 from PIL import Image
 import io
+import json
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -101,6 +102,51 @@ def create_app():
             # 如果没有时区标识，添加'Z'表示UTC
             iso_str = iso_str + 'Z'
         return iso_str
+
+    # 加载图片标签数据（用于性别过滤）
+    _labels_cache = None
+    def load_image_labels():
+        """加载图片标签数据，返回以image_path为key的字典"""
+        nonlocal _labels_cache
+        if _labels_cache is not None:
+            return _labels_cache
+        
+        labels_file = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "dataset", "data", "labels.jsonl"
+        )
+        
+        _labels_cache = {}
+        if os.path.exists(labels_file):
+            try:
+                with open(labels_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                label = json.loads(line)
+                                image_path = label.get("image_path", "")
+                                if image_path:
+                                    _labels_cache[image_path] = label
+                            except json.JSONDecodeError:
+                                continue
+            except Exception as e:
+                print(f"加载标签数据失败: {e}")
+        
+        return _labels_cache
+    
+    def get_post_gender(image_path):
+        """根据图片路径获取帖子的性别标签"""
+        labels = load_image_labels()
+        label = labels.get(image_path, {})
+        gender_label = label.get("gender", "unknown")
+        # 将标签中的性别转换为用户性别格式
+        # "男装" -> "男", "女装" -> "女", "中性" -> 匹配所有, "unknown" -> 匹配所有
+        if gender_label == "男装":
+            return "男"
+        elif gender_label == "女装":
+            return "女"
+        else:  # "中性" 或 "unknown"
+            return None  # None表示匹配所有性别
 
     class User(db.Model):
         __tablename__ = "users"
@@ -248,6 +294,14 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
         user_id = request.args.get("user_id", type=int)  # 可选：获取特定用户的帖子
+        current_user_id = request.args.get("current_user_id", type=int) or 0
+
+        # 获取当前用户的性别（如果已登录）
+        user_gender = None
+        if current_user_id > 0:
+            current_user = User.query.get(current_user_id)
+            if current_user and current_user.gender:
+                user_gender = current_user.gender
 
         query = Post.query
         if user_id:
@@ -262,11 +316,32 @@ def create_app():
             (Post.like_count + Post.collect_count * 2).desc()
         )
 
-        posts = query.paginate(page=page, per_page=page_size, error_out=False)
-        current_user_id = request.args.get("current_user_id", type=int) or 0
+        # 先获取所有帖子
+        all_posts = query.all()
+        
+        # 如果用户设置了性别，则根据性别过滤帖子
+        filtered_posts = []
+        if user_gender:
+            labels = load_image_labels()
+            for post in all_posts:
+                # 获取帖子的性别标签
+                post_gender = get_post_gender(post.image_path)
+                # 如果帖子性别为None（中性或unknown），则显示
+                # 如果帖子性别与用户性别匹配，则显示
+                if post_gender is None or post_gender == user_gender:
+                    filtered_posts.append(post)
+        else:
+            # 如果用户未设置性别，显示所有帖子
+            filtered_posts = all_posts
+
+        # 分页处理
+        total = len(filtered_posts)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_posts = filtered_posts[start:end]
 
         result = []
-        for post in posts.items:
+        for post in paginated_posts:
             user = User.query.get(post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
@@ -306,7 +381,7 @@ def create_app():
                 "data": result,
                 "page": page,
                 "pageSize": page_size,
-                "total": posts.total,
+                "total": total,
             }
         ), 200
 
@@ -1229,109 +1304,189 @@ def create_app():
         调用豆包API进行虚拟试衣
         
         注意：此函数需要根据豆包API的实际文档进行调整
-        API ID: e5ede485-932d-4de2-8334-57d8955b61b8
-        
-        可能的API格式：
-        1. 如果豆包API使用类似OpenAI的格式，使用下面的代码
-        2. 如果豆包API使用自定义格式，需要根据实际文档修改
-        3. 如果API返回的是图片URL而不是base64，需要相应调整
         """
         try:
             # 豆包API配置
-            # API Key: 从环境变量读取，如果没有设置则使用默认值（仅用于开发测试）
-            api_key = os.environ.get("DOUBAO_API_KEY", "e5ede485-932d-4de2-8334-57d8955b61b8")
+            # API Key: 从环境变量读取
+            api_key = os.environ.get("DOUBAO_API_KEY", "").strip()
             
-            # API URL: 火山方舟的API地址
-            api_url = os.environ.get("DOUBAO_API_URL", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
+            # API URL: 火山方舟的图像生成API地址
+            api_url = os.environ.get("DOUBAO_API_URL", "https://ark.cn-beijing.volces.com/api/v3/images/generations")
             
             # Model ID: 接入点ID（ep-开头的），必须从火山方舟平台创建推理接入点后获取
-            model_id = os.environ.get("DOUBAO_MODEL_ID", "ep-20241220102330-xxxxx")
+            model_id = os.environ.get("DOUBAO_MODEL_ID", "").strip()
+            
+            # 调试信息：显示实际读取到的配置值
+            print(f"[DEBUG] 从环境变量读取配置:")
+            print(f"[DEBUG] DOUBAO_API_KEY: {api_key[:10]}...{api_key[-10:] if len(api_key) > 20 else api_key} (长度: {len(api_key)})")
+            print(f"[DEBUG] DOUBAO_MODEL_ID: {model_id}")
             
             # 检查必要的配置
-            if not api_key or api_key == "":
-                return None, "豆包API Key未配置，请设置环境变量 DOUBAO_API_KEY 或在 backend/.env 文件中配置"
-            if not model_id or model_id == "ep-20241220102330-xxxxx":
-                return None, "豆包接入点ID未配置！请在 backend/.env 文件中设置 DOUBAO_MODEL_ID（格式：ep-xxxxx）。\n请参考 backend/CONFIG.md 文件了解如何获取和配置接入点ID。"
+            if not api_key:
+                return None, "豆包API Key未配置！\n请按以下步骤操作：\n1. 登录火山方舟控制台：https://console.volcengine.com/ark/\n2. 进入「API Key 管理」页面\n3. 找到您的API Key（如：dresscode换装）\n4. 复制API Key的值\n5. 在 backend/.env 文件中设置 DOUBAO_API_KEY=您的API Key值"
             
-            # 构建请求体 - 根据豆包API实际格式调整
+            # 检查API Key是否是明显的示例值
+            if api_key == "your_api_key_here" or api_key == "your-doubao-api-key":
+                return None, f"请使用真实的API Key！\n当前使用的是示例值：{api_key}\n请从火山方舟控制台的「API Key 管理」页面获取您的真实API Key，并更新 backend/.env 文件中的 DOUBAO_API_KEY"
+            
+            if not model_id or model_id == "ep-20241220102330-xxxxx" or model_id == "ep-xxxxx":
+                return None, f"豆包接入点ID未配置！\n当前值：{model_id if model_id else '(空)'}\n请按以下步骤操作：\n1. 登录火山方舟控制台：https://console.volcengine.com/ark/\n2. 进入「推理接入点」页面\n3. 找到您的接入点（如：dresscode换装）\n4. 复制接入点ID（格式：ep-xxxxx）\n5. 在 backend/.env 文件中设置 DOUBAO_MODEL_ID=您的接入点ID"
+            
+            # 验证接入点ID格式
+            if not model_id.startswith("ep-"):
+                return None, f"接入点ID格式错误！\n当前值：{model_id}\n接入点ID必须以 'ep-' 开头，格式如：ep-20251220184236-nr5vt\n请检查 backend/.env 文件中的 DOUBAO_MODEL_ID 配置"
+            
+            print(f"[DEBUG] API配置检查通过")
+            print(f"[DEBUG] API URL: {api_url}")
+            print(f"[DEBUG] 接入点ID: {model_id}")
+            print(f"[DEBUG] API Key: {api_key[:10]}...{api_key[-10:] if len(api_key) > 20 else '***'}")
+            
+            # 构建请求体 - 使用图像生成API格式
+            # 注意：Seedream图像编辑API使用人物原图作为image参数，通过prompt描述换装需求
+            # 如果需要同时传入衣服图片，可能需要先合成或使用其他方式
+            # 当前实现：使用人物原图，prompt描述换装需求
             payload = {
                 "model": model_id,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "请将用户照片和衣服图片进行虚拟试衣合成，返回合成后的图片base64编码"
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{user_image_base64}"
-                                }
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{clothing_image_base64}"
-                                }
-                            }
-                        ]
-                    }
-                ]
+                "prompt": "将人物的服装替换为图片中的服装，保持人物脸部、姿势和背景不变，写实风格，高质量",
+                "image": f"data:image/jpeg;base64,{user_image_base64}",
+                "strength": 0.6,  # 控制改动幅度，0.0-1.0，值越大改动越大
+                "sequential_image_generation": "disabled",
+                "response_format": "b64_json",  # 返回base64编码的图片
+                "size": "2K",
+                "stream": False,
+                "watermark": True
             }
+            
+            # 注意：如果API支持多图片输入，可能需要调整payload格式
+            # 当前实现假设使用人物原图 + prompt描述的方式
             
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
             
+            print(f"[DEBUG] 开始调用API...")
+            print(f"[DEBUG] 请求URL: {api_url}")
+            print(f"[DEBUG] 请求体中的model字段: {payload.get('model', '未设置')}")
+            print(f"[DEBUG] 请求体大小: {len(str(payload))} 字符")
+            
             # 调用API
             response = requests.post(api_url, json=payload, headers=headers, timeout=120)
-            response.raise_for_status()
             
+            print(f"[DEBUG] API响应状态码: {response.status_code}")
+            
+            # 如果状态码不是200，先尝试解析错误信息
+            if response.status_code != 200:
+                try:
+                    error_result = response.json()
+                    error_msg = f"API调用失败 (状态码: {response.status_code})"
+                    if "error" in error_result:
+                        error_detail = error_result["error"]
+                        if isinstance(error_detail, dict):
+                            if "message" in error_detail:
+                                error_msg += f"\n错误信息: {error_detail['message']}"
+                                
+                                # 检查是否是"模型不支持此API"错误
+                                error_message_lower = error_detail.get('message', '').lower()
+                                if "does not support this api" in error_message_lower or "不支持此api" in error_message_lower:
+                                    error_msg += f"\n\n⚠️ 重要提示：接入点对应的底层模型不支持当前的API调用方式\n"
+                                    error_msg += f"\n可能的原因和解决方案：\n"
+                                    error_msg += f"1. Seedream虚拟试衣模型可能需要使用不同的API端点\n"
+                                    error_msg += f"2. 请检查火山方舟控制台中的接入点配置，确认该接入点是否支持 chat/completions API\n"
+                                    error_msg += f"3. 如果接入点配置的是图像生成模型，可能需要使用图像生成API端点（如 /api/v3/images/generations）\n"
+                                    error_msg += f"4. 请查阅火山方舟Seedream模型的API文档，确认正确的API调用方式\n"
+                                    error_msg += f"5. 当前使用的接入点ID: {model_id}\n"
+                                    error_msg += f"6. 当前使用的API端点: {api_url}\n"
+                                    error_msg += f"\n建议操作：\n"
+                                    error_msg += f"- 登录火山方舟控制台：https://console.volcengine.com/ark/\n"
+                                    error_msg += f"- 查看接入点详情，确认该接入点支持的API类型\n"
+                                    error_msg += f"- 根据接入点类型，调整 backend/.env 中的 DOUBAO_API_URL 配置\n"
+                                
+                                # 如果是404错误，添加更详细的提示
+                                elif response.status_code == 404 or "does not exist" in error_message_lower or "NotFound" in error_detail.get('code', ''):
+                                    error_msg += f"\n\n可能的原因：\n1. 接入点ID配置错误或已被删除\n2. API Key没有权限访问该接入点\n3. 请检查 backend/.env 文件中的 DOUBAO_MODEL_ID 配置\n4. 登录火山方舟控制台确认接入点是否存在：https://console.volcengine.com/ark/"
+                            if "code" in error_detail:
+                                error_msg += f"\n错误代码: {error_detail['code']}"
+                        else:
+                            error_msg += f"\n错误详情: {error_detail}"
+                    else:
+                        error_msg += f"\n响应内容: {str(error_result)[:500]}"
+                    print(f"[ERROR] {error_msg}")
+                    print(f"[ERROR] 当前配置的接入点ID: {model_id}")
+                    print(f"[ERROR] 当前使用的API端点: {api_url}")
+                    print(f"[ERROR] 请求体中的model字段: {payload.get('model', '未设置')}")
+                    return None, error_msg
+                except:
+                    error_msg = f"API调用失败 (状态码: {response.status_code})\n响应内容: {response.text[:500]}"
+                    if response.status_code == 404:
+                        error_msg += f"\n\n可能的原因：\n1. 接入点ID配置错误或已被删除\n2. 请检查 backend/.env 文件中的 DOUBAO_MODEL_ID 配置\n3. 登录火山方舟控制台确认接入点是否存在：https://console.volcengine.com/ark/"
+                    print(f"[ERROR] {error_msg}")
+                    print(f"[ERROR] 当前配置的接入点ID: {model_id}")
+                    return None, error_msg
+            
+            response.raise_for_status()
             result = response.json()
             
-            # 解析返回结果 - 根据实际API响应格式调整
-            # 方式1：如果返回格式类似OpenAI
-            if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0]["message"]["content"]
-                # 尝试提取base64编码的图片
-                # 如果content直接是base64，直接返回
-                # 如果content是JSON格式，需要解析
-                if content.startswith("data:image") or len(content) > 1000:
-                    # 可能是base64编码的图片
-                    if "base64," in content:
-                        result_image_base64 = content.split("base64,")[1]
-                    else:
-                        result_image_base64 = content
+            print(f"[DEBUG] API调用成功，开始解析响应...")
+            print(f"[DEBUG] 响应键: {list(result.keys())}")
+            
+            # 解析返回结果 - images/generations API的响应格式
+            # 标准格式：{"data": [{"b64_json": "...", "url": "..."}, ...], "created": 1234567890}
+            if "data" in result and isinstance(result["data"], list) and len(result["data"]) > 0:
+                first_image = result["data"][0]
+                
+                # 优先使用b64_json（因为我们设置了response_format为b64_json）
+                if "b64_json" in first_image:
+                    result_image_base64 = first_image["b64_json"]
+                    print(f"[DEBUG] 从b64_json中提取图片成功，长度: {len(result_image_base64)}")
                     return result_image_base64, None
-                else:
-                    # 可能是JSON格式，尝试解析
-                    import json
+                
+                # 如果没有b64_json，尝试使用url
+                if "url" in first_image:
+                    image_url = first_image["url"]
+                    print(f"[DEBUG] 从url中获取图片: {image_url}")
+                    # 下载图片并转换为base64
                     try:
-                        content_json = json.loads(content)
-                        if "image" in content_json:
-                            result_image_base64 = content_json["image"]
-                            return result_image_base64, None
-                    except:
-                        pass
+                        img_response = requests.get(image_url, timeout=30)
+                        img_response.raise_for_status()
+                        result_image_base64 = base64.b64encode(img_response.content).decode('utf-8')
+                        print(f"[DEBUG] 下载图片并转换为base64成功，长度: {len(result_image_base64)}")
+                        return result_image_base64, None
+                    except Exception as e:
+                        print(f"[ERROR] 下载图片失败: {str(e)}")
+                        return None, f"下载生成的图片失败: {str(e)}"
             
-            # 方式2：如果返回格式不同，根据实际格式调整
-            # 例如：如果返回的是 {"data": {"image": "base64..."}}
-            if "data" in result and "image" in result["data"]:
-                return result["data"]["image"], None
+            # 兼容其他可能的响应格式
+            if "image" in result:
+                result_image_base64 = result["image"]
+                print(f"[DEBUG] 从image字段中提取图片成功")
+                return result_image_base64, None
             
-            return None, f"API返回格式不符合预期: {str(result)[:200]}"
+            # 打印完整响应以便调试
+            print(f"[ERROR] API返回格式不符合预期")
+            print(f"[ERROR] 完整响应: {str(result)[:1000]}")
+            return None, f"API返回格式不符合预期\n响应内容: {str(result)[:500]}\n\n请检查：\n1. API Key是否有权限访问此接入点\n2. 接入点是否支持图像生成功能\n3. API调用格式是否正确\n4. 响应格式: {list(result.keys())}"
                 
         except requests.exceptions.RequestException as e:
             error_msg = f"API调用失败: {str(e)}"
             print(f"[ERROR] {error_msg}")
             if hasattr(e, 'response') and e.response is not None:
                 try:
-                    error_detail = e.response.text[:500]
+                    error_detail = e.response.text[:1000]
                     print(f"[ERROR] API响应详情: {error_detail}")
-                    error_msg += f" (响应: {error_detail})"
+                    # 尝试解析JSON错误
+                    try:
+                        error_json = e.response.json()
+                        if "error" in error_json:
+                            error_info = error_json["error"]
+                            if isinstance(error_info, dict):
+                                if "message" in error_info:
+                                    error_msg += f"\n错误信息: {error_info['message']}"
+                                if "code" in error_info:
+                                    error_msg += f"\n错误代码: {error_info['code']}"
+                    except:
+                        pass
+                    error_msg += f"\n\n完整响应: {error_detail}"
                 except:
                     pass
             return None, error_msg
@@ -1339,8 +1494,9 @@ def create_app():
             error_msg = f"处理失败: {str(e)}"
             print(f"[ERROR] {error_msg}")
             import traceback
-            print(f"[ERROR] 堆栈跟踪: {traceback.format_exc()}")
-            return None, error_msg
+            traceback_str = traceback.format_exc()
+            print(f"[ERROR] 堆栈跟踪: {traceback_str}")
+            return None, f"{error_msg}\n\n堆栈跟踪:\n{traceback_str}"
 
     # 换装API接口
     @app.route("/api/try-on", methods=["POST"])
@@ -1439,32 +1595,34 @@ def create_app():
             result_image_base64, error_msg = call_doubao_tryon_api(user_image_base64, clothing_image_base64)
             
             if result_image_base64:
-                # 保存结果图片
+                # 保存结果图片并替换原照片
                 try:
                     # 解码base64图片
                     image_data = base64.b64decode(result_image_base64)
                     image = Image.open(io.BytesIO(image_data))
                     
-                    # 生成唯一文件名
-                    unique_filename = f"tryon_{try_on_record.id}_{uuid.uuid4().hex}.jpg"
-                    secure_name = secure_filename(unique_filename)
-                    file_path = os.path.join(try_on_results_path, secure_name)
+                    # 只保存结果到try_on_results目录，不替换用户照片
+                    try_on_filename = f"tryon_{try_on_record.id}_{uuid.uuid4().hex}.jpg"
+                    try_on_secure_name = secure_filename(try_on_filename)
+                    try_on_file_path = os.path.join(try_on_results_path, try_on_secure_name)
+                    image.save(try_on_file_path, "JPEG")
                     
-                    # 保存图片
-                    image.save(file_path, "JPEG")
+                    # 结果图片路径
+                    result_image_path = f"/static/try-on-results/{try_on_secure_name}"
                     
-                    # 更新记录
-                    result_image_path = f"/static/try-on-results/{secure_name}"
+                    # 更新try_on记录
                     try_on_record.result_image_path = result_image_path
                     try_on_record.status = "success"
                     db.session.commit()
+                    
+                    print(f"[INFO] 换装结果已保存: {result_image_path}")
                     
                     return jsonify({
                         "ok": True,
                         "msg": "换装成功",
                         "data": {
                             "id": try_on_record.id,
-                            "resultImagePath": result_image_path,
+                            "resultImagePath": result_image_path,  # 返回try-on-results路径
                             "status": "success"
                         }
                     }), 200
@@ -1472,6 +1630,9 @@ def create_app():
                     try_on_record.status = "failed"
                     try_on_record.error_message = f"保存结果图片失败: {str(e)}"
                     db.session.commit()
+                    import traceback
+                    print(f"[ERROR] 保存结果失败: {str(e)}")
+                    print(f"[ERROR] 堆栈跟踪: {traceback.format_exc()}")
                     return jsonify({"ok": False, "msg": f"保存结果失败: {str(e)}"}), 500
             else:
                 try_on_record.status = "failed"
@@ -1738,5 +1899,15 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # 配置Flask启动参数
+    # 默认禁用自动重载(use_reloader=False)，避免保存结果图片到数据目录时触发重载导致请求中断
+    # 如果需要自动重载（修改代码后自动重启），可以设置环境变量 FLASK_USE_RELOADER=true
+    use_reloader = os.environ.get("FLASK_USE_RELOADER", "false").lower() == "true"
+    
+    app.run(
+        host="0.0.0.0", 
+        port=5000, 
+        debug=True, 
+        use_reloader=use_reloader
+    )
 

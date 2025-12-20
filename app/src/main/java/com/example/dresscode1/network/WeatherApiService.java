@@ -10,13 +10,12 @@ public interface WeatherApiService {
     /**
      * 获取实时天气
      * @param location 城市ID或经纬度，例如：101010100 或 116.41,39.92
-     * @param key API密钥
      * @return 天气响应
+     * 注意：API Key 通过 URL 查询参数 ?key=xxx 自动添加（由拦截器处理）
      */
     @GET("v7/weather/now")
     Call<WeatherResponse> getNowWeather(
-            @Query("location") String location,
-            @Query("key") String key
+            @Query("location") String location
     );
 }
 

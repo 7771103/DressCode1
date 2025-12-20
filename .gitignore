@@ -97,6 +97,12 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# 环境变量文件（包含敏感信息）
+.env
+.env.local
+.env.*.local
+backend/.env
+
 # 图片文件（保留 Android 资源目录中的图片）
 # 先保留 Android 资源目录（确保父目录不被忽略）
 !app/src/main/res/

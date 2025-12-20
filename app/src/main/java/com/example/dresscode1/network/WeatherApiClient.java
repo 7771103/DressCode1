@@ -2,26 +2,25 @@ package com.example.dresscode1.network;
 
 import android.util.Log;
 
+import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.HttpUrl;
+import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import okhttp3.logging.HttpLoggingInterceptor;
 import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 public class WeatherApiClient {
     
-    // ⚠️ 重要：devapi.qweather.com 将于2026年1月1日停止服务，必须使用专属 API Host
-    // 
-    // 获取专属 API Host 的步骤：
-    // 1. 登录和风天气控制台：https://console.qweather.com
-    // 2. 进入"设置"页面
-    // 3. 在"API Host"部分查看您的专属 API Host
-    // 4. 格式类似于：https://abc1234xyz.def.qweatherapi.com/
-    // 
-    // TODO: 请将下面的 BASE_URL 替换为您的专属 API Host
-    private static final String BASE_URL = "https://api.qweather.com/"; // ⚠️ 请替换为您的专属 API Host
-    private static final String API_KEY = "45b4b6ab84dc478fb32c6e0f7989d16c";
+    // 使用官方公共 API Host（推荐给学生/Android 项目）
+    // 2026年1月前都可以正常使用
+    // 确保 API Key 已授权「实时天气」权限
+    private static final String BASE_URL = "https://api.qweather.com/"; // 官方公共 Host
+    private static final String API_KEY = "4810a9f1ca414a0186e59c39ab5eb427";
     
     private static WeatherApiService service;
 
@@ -30,7 +29,26 @@ public class WeatherApiClient {
             HttpLoggingInterceptor logging = new HttpLoggingInterceptor(message -> Log.d("WeatherAPI", message));
             logging.setLevel(HttpLoggingInterceptor.Level.BODY);
 
+            // 添加 API Key 到 URL 查询参数的拦截器
+            // 官方公共 Host 使用 ?key=xxx 方式传递 API Key
+            Interceptor apiKeyInterceptor = new Interceptor() {
+                @Override
+                public Response intercept(Chain chain) throws IOException {
+                    Request original = chain.request();
+                    // 使用 HttpUrl.Builder 正确添加 key 参数
+                    HttpUrl newUrl = original.url().newBuilder()
+                            .addQueryParameter("key", API_KEY)
+                            .build();
+                    
+                    Request request = original.newBuilder()
+                            .url(newUrl)
+                            .build();
+                    return chain.proceed(request);
+                }
+            };
+
             OkHttpClient client = new OkHttpClient.Builder()
+                    .addInterceptor(apiKeyInterceptor)
                     .addInterceptor(logging)
                     .connectTimeout(15, TimeUnit.SECONDS)
                     .readTimeout(15, TimeUnit.SECONDS)

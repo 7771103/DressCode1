@@ -24,8 +24,8 @@ public class ApiClient {
 
             OkHttpClient client = new OkHttpClient.Builder()
                     .addInterceptor(logging)
-                    .connectTimeout(15, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
+                    .connectTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(300, TimeUnit.SECONDS)  // 图片生成需要较长时间，设置为120秒
                     .build();
 
             Retrofit retrofit = new Retrofit.Builder()

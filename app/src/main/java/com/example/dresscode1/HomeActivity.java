@@ -16,6 +16,9 @@ import android.location.Address;
 import java.util.List;
 import java.util.Locale;
 import android.provider.MediaStore;
+import android.content.ContentValues;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
@@ -41,6 +44,7 @@ import androidx.constraintlayout.widget.ConstraintLayout;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -48,6 +52,10 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestListener;
+import com.bumptech.glide.request.target.Target;
+import com.bumptech.glide.load.DataSource;
+import com.bumptech.glide.load.engine.GlideException;
 import com.example.dresscode1.adapter.PostAdapter;
 import com.example.dresscode1.adapter.MessageAdapter;
 import com.example.dresscode1.adapter.WardrobeItemAdapter;
@@ -91,6 +99,12 @@ import com.google.android.material.button.MaterialButton;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 import de.hdodenhof.circleimageview.CircleImageView;
 import okhttp3.MediaType;
@@ -164,13 +178,16 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private String postImagePath;  // 帖子图片路径（用于API调用）
     private Integer tryOnPostId;  // 试装关联的帖子ID
     private WardrobeItem selectedWardrobeItem;  // 选中的衣橱图片
+    private String currentResultImageUrl;  // 当前合成结果图片的URL，用于保存到相册
     private ActivityResultLauncher<Intent> wardrobeImagePickerLauncher;
     private ActivityResultLauncher<Intent> wardrobeCameraLauncher;
     private ActivityResultLauncher<Intent> userPhotoImagePickerLauncher;
     private ActivityResultLauncher<Uri> userPhotoCameraLauncher;
     private ActivityResultLauncher<String> wardrobePermissionLauncher;
     private ActivityResultLauncher<String> userPhotoPermissionLauncher;
+    private ActivityResultLauncher<String> saveImagePermissionLauncher;
     private Uri userPhotoCameraUri;  // 相机拍照的临时URI
+    private Bitmap pendingSaveBitmap;  // 待保存的图片（用于权限授予后保存）
     private WardrobeItemAdapter wardrobeItemAdapter;
     private UserPhotoAdapter userPhotoAdapter;
     private java.util.List<Uri> userPhotoUris = new java.util.ArrayList<>();
@@ -332,6 +349,26 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         userPhotoImagePickerLauncher.launch(intent);
                     } else {
                         Toast.makeText(this, "需要存储权限才能选择图片", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+        
+        // 保存图片到相册的权限launcher
+        saveImagePermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted && pendingSaveBitmap != null) {
+                        // 权限授予后，重新尝试保存
+                        String savedUri = saveImageToGalleryInternal(pendingSaveBitmap);
+                        pendingSaveBitmap = null;
+                        if (savedUri != null) {
+                            Toast.makeText(this, "已保存到相册", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        pendingSaveBitmap = null;
+                        Toast.makeText(this, "需要存储权限才能保存图片", Toast.LENGTH_SHORT).show();
                     }
                 }
         );
@@ -1476,14 +1513,59 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 String resultImagePath = tryOnResponse.getData().getResultImagePath();
                                 if (resultImagePath != null && !resultImagePath.isEmpty()) {
                                     String resultImageUrl = ApiClient.getImageUrl(resultImagePath);
+                                    // 保存结果图片URL，用于保存到相册
+                                    currentResultImageUrl = resultImageUrl;
+                                    Log.d("TryOn", "合成成功，图片路径: " + resultImagePath);
+                                    Log.d("TryOn", "完整图片URL: " + resultImageUrl);
+                                    
+                                    // 使用Glide加载图片，并添加加载监听
                                     Glide.with(HomeActivity.this)
                                             .load(resultImageUrl)
                                             .centerCrop()
                                             .placeholder(android.R.drawable.ic_menu_gallery)
                                             .error(android.R.drawable.ic_menu_report_image)
+                                            .listener(new RequestListener<android.graphics.drawable.Drawable>() {
+                                                @Override
+                                                public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<android.graphics.drawable.Drawable> target, boolean isFirstResource) {
+                                                    Log.e("TryOn", "图片加载失败: " + (e != null ? e.getMessage() : "未知错误"));
+                                                    Toast.makeText(HomeActivity.this, "图片加载失败，请检查网络连接", Toast.LENGTH_LONG).show();
+                                                    return false;
+                                                }
+
+                                                @Override
+                                                public boolean onResourceReady(android.graphics.drawable.Drawable resource, Object model, Target<android.graphics.drawable.Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                                                    Log.d("TryOn", "图片加载成功");
+                                                    return false;
+                                                }
+                                            })
                                             .into(ivResultPhoto);
+                                    
+                                    // 显示合成结果区域
                                     cardResult.setVisibility(View.VISIBLE);
-                                    Toast.makeText(HomeActivity.this, "合成完成！", Toast.LENGTH_SHORT).show();
+                                    
+                                    // 确保在衣橱页面，并滚动到结果区域
+                                    if (!"wardrobe".equals(currentTab)) {
+                                        switchToWardrobe();
+                                    }
+                                    
+                                    // 延迟滚动到结果区域，确保视图已渲染
+                                    cardResult.postDelayed(() -> {
+                                        cardResult.requestFocus();
+                                        // 如果结果区域在ScrollView中，滚动到该位置
+                                        android.view.ViewParent parent = cardResult.getParent();
+                                        while (parent != null) {
+                                            if (parent instanceof android.widget.ScrollView) {
+                                                ((android.widget.ScrollView) parent).smoothScrollTo(0, cardResult.getTop());
+                                                break;
+                                            } else if (parent instanceof androidx.core.widget.NestedScrollView) {
+                                                ((androidx.core.widget.NestedScrollView) parent).smoothScrollTo(0, cardResult.getTop());
+                                                break;
+                                            }
+                                            parent = parent.getParent();
+                                        }
+                                    }, 300);
+                                    
+                                    Toast.makeText(HomeActivity.this, "合成完成！合成结果已显示在下方", Toast.LENGTH_LONG).show();
                                 } else {
                                     Toast.makeText(HomeActivity.this, "合成结果为空", Toast.LENGTH_SHORT).show();
                                 }
@@ -1491,7 +1573,15 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 Toast.makeText(HomeActivity.this, "合成失败: " + tryOnResponse.getMsg(), Toast.LENGTH_SHORT).show();
                             }
                         } else {
-                            Toast.makeText(HomeActivity.this, "合成失败，请重试", Toast.LENGTH_SHORT).show();
+                            String errorMsg = "合成失败，请重试";
+                            if (response.errorBody() != null) {
+                                try {
+                                    errorMsg = response.errorBody().string();
+                                } catch (Exception e) {
+                                    // 忽略
+                                }
+                            }
+                            Toast.makeText(HomeActivity.this, errorMsg, Toast.LENGTH_SHORT).show();
                         }
                     }
 
@@ -1505,13 +1595,108 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
     
     private void saveResult() {
-        if (ivResultPhoto.getDrawable() == null) {
+        if (currentResultImageUrl == null || currentResultImageUrl.isEmpty()) {
             Toast.makeText(this, "没有合成结果可保存", Toast.LENGTH_SHORT).show();
             return;
         }
         
-        // TODO: 实现保存合成结果到相册的功能
-        Toast.makeText(this, "保存功能开发中...", Toast.LENGTH_SHORT).show();
+        // 在新线程中下载并保存图片
+        new Thread(() -> {
+            try {
+                // 下载图片
+                URL url = new URL(currentResultImageUrl);
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setDoInput(true);
+                connection.connect();
+                InputStream input = connection.getInputStream();
+                Bitmap bitmap = BitmapFactory.decodeStream(input);
+                input.close();
+                connection.disconnect();
+                
+                if (bitmap == null) {
+                    runOnUiThread(() -> {
+                        Toast.makeText(this, "下载图片失败", Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                }
+                
+                // 保存到相册
+                String savedUri = saveImageToGallery(bitmap);
+                
+                runOnUiThread(() -> {
+                    if (savedUri != null) {
+                        Toast.makeText(this, "已保存到相册", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "保存失败，请检查权限", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            } catch (Exception e) {
+                Log.e("HomeActivity", "保存图片失败", e);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "保存失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+        
+        Toast.makeText(this, "正在保存...", Toast.LENGTH_SHORT).show();
+    }
+    
+    /**
+     * 保存图片到相册（带权限检查）
+     * @param bitmap 要保存的图片
+     * @return 保存后的URI，失败返回null
+     */
+    private String saveImageToGallery(Bitmap bitmap) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ 使用MediaStore API，不需要WRITE_EXTERNAL_STORAGE权限
+            return saveImageToGalleryInternal(bitmap);
+        } else {
+            // Android 9及以下，需要WRITE_EXTERNAL_STORAGE权限
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // 保存待保存的图片，请求权限
+                pendingSaveBitmap = bitmap;
+                runOnUiThread(() -> {
+                    saveImagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+                });
+                return null;
+            }
+            
+            // 权限已授予，直接保存
+            return saveImageToGalleryInternal(bitmap);
+        }
+    }
+    
+    /**
+     * 实际保存图片到相册的实现
+     * @param bitmap 要保存的图片
+     * @return 保存后的URI，失败返回null
+     */
+    private String saveImageToGalleryInternal(Bitmap bitmap) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, 
+                "DressCode_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date()) + ".jpg");
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ 指定保存路径
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/DressCode");
+        }
+        
+        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri != null) {
+            try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                if (outputStream != null) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+                    outputStream.flush();
+                    return uri.toString();
+                }
+            } catch (IOException e) {
+                Log.e("HomeActivity", "保存图片失败", e);
+                getContentResolver().delete(uri, null, null);
+            }
+        }
+        return null;
     }
 
     private void switchToProfile() {
@@ -2481,9 +2666,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
     private void fetchWeather(String location) {
         WeatherApiService weatherService = WeatherApiClient.getService();
-        String apiKey = WeatherApiClient.getApiKey();
         
-        weatherService.getNowWeather(location, apiKey)
+        weatherService.getNowWeather(location)
                 .enqueue(new Callback<WeatherResponse>() {
                     @Override
                     public void onResponse(Call<WeatherResponse> call, Response<WeatherResponse> response) {
