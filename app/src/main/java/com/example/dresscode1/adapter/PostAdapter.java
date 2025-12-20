@@ -1,5 +1,6 @@
 package com.example.dresscode1.adapter;
 
+import android.content.Intent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -11,6 +12,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.example.dresscode1.PostDetailActivity;
 import com.example.dresscode1.R;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Post;
@@ -28,6 +30,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         void onLikeClick(Post post, int position);
         void onCommentClick(Post post, int position);
         void onCollectClick(Post post, int position);
+        void onPostClick(Post post);
     }
 
     public PostAdapter(OnPostActionListener listener, int currentUserId) {
@@ -130,15 +133,17 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                 ivCollect.setTextColor(itemView.getContext().getColor(R.color.text_secondary));
             }
 
-            // 加载图片
-            // 图片路径应该是: http://your-server/dataset/data/images/{imagePath}
-            // 简化处理：假设图片在服务器上的路径
-            String imageUrl = "http://10.134.17.29:5000/static/images/" + post.getImagePath();
-            Glide.with(itemView.getContext())
-                    .load(imageUrl)
-                    .placeholder(android.R.color.transparent)
-                    .error(android.R.color.transparent)
-                    .into(ivPostImage);
+            // 加载图片 - 从dataset中的图片
+            String imageUrl = ApiClient.getImageUrl(post.getImagePath());
+            if (imageUrl != null) {
+                Glide.with(itemView.getContext())
+                        .load(imageUrl)
+                        .placeholder(android.R.color.transparent)
+                        .error(android.R.color.transparent)
+                        .into(ivPostImage);
+            } else {
+                ivPostImage.setImageDrawable(null);
+            }
 
             // 设置点击事件
             btnLike.setOnClickListener(v -> {
@@ -156,6 +161,13 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             btnCollect.setOnClickListener(v -> {
                 if (listener != null) {
                     listener.onCollectClick(post, getAdapterPosition());
+                }
+            });
+
+            // 点击整个item跳转到详情页
+            itemView.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onPostClick(post);
                 }
             });
         }

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="12dp"
+    android:paddingBottom="16dp">
+
+    <TextView
+        android:id="@+id/tvUserAvatar"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/ic_launcher_background"
+        android:gravity="center"
+        android:text="头像"
+        android:textColor="@color/white"
+        android:textSize="14sp"
+        android:backgroundTint="@color/primary_blue_gray"
+        android:layout_marginEnd="12dp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvUserNickname"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="用户名"
+                android:textColor="@color/text_primary_dark"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvCreatedAt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · 2小时前"
+                android:textColor="@color/text_tertiary"
+                android:textSize="12sp"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="评论内容..."
+            android:textColor="@color/text_primary_dark"
+            android:textSize="14sp"
+            android:lineSpacingExtra="2dp" />
+    </LinearLayout>
+</LinearLayout>
+
+

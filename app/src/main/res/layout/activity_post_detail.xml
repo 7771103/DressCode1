@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_light">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/white"
+            app:title="帖子详情"
+            app:titleTextColor="@color/text_primary_dark"
+            app:navigationIcon="?attr/homeAsUpIndicator" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 帖子内容卡片 -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                android:background="@color/white">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <!-- 用户信息 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:id="@+id/tvUserAvatar"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/ic_launcher_background"
+                            android:gravity="center"
+                            android:text="头像"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:backgroundTint="@color/primary_blue_gray"
+                            android:layout_marginEnd="12dp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvUserNickname"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="用户名"
+                                android:textColor="@color/text_primary_dark"
+                                android:textSize="16sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvCreatedAt"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="2小时前"
+                                android:textColor="@color/text_tertiary"
+                                android:textSize="12sp"
+                                android:layout_marginTop="4dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- 帖子内容 -->
+                    <TextView
+                        android:id="@+id/tvContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="帖子内容..."
+                        android:textColor="@color/text_primary_dark"
+                        android:textSize="15sp"
+                        android:layout_marginBottom="16dp"
+                        android:lineSpacingExtra="6dp" />
+
+                    <!-- 帖子图片 -->
+                    <ImageView
+                        android:id="@+id/ivPostImage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:adjustViewBounds="true"
+                        android:scaleType="centerCrop"
+                        android:background="@color/bg_light"
+                        android:minHeight="300dp"
+                        android:maxHeight="800dp"
+                        android:layout_marginBottom="16dp"
+                        android:contentDescription="帖子图片" />
+
+                    <!-- 操作按钮 -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingTop="8dp"
+                        android:paddingBottom="8dp">
+
+                        <LinearLayout
+                            android:id="@+id/btnLike"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:padding="12dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:background="?attr/selectableItemBackground">
+
+                            <TextView
+                                android:id="@+id/ivLike"
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:text="🤍"
+                                android:textSize="24sp"
+                                android:gravity="center"
+                                android:layout_marginEnd="6dp" />
+
+                            <TextView
+                                android:id="@+id/tvLikeCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="15sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/btnComment"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:padding="12dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:background="?attr/selectableItemBackground">
+
+                            <TextView
+                                android:id="@+id/ivComment"
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:text="💬"
+                                android:textSize="24sp"
+                                android:gravity="center"
+                                android:layout_marginEnd="6dp" />
+
+                            <TextView
+                                android:id="@+id/tvCommentCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="15sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/btnCollect"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:padding="12dp"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:background="?attr/selectableItemBackground">
+
+                            <TextView
+                                android:id="@+id/ivCollect"
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:text="☆"
+                                android:textSize="24sp"
+                                android:gravity="center"
+                                android:layout_marginEnd="6dp" />
+
+                            <TextView
+                                android:id="@+id/tvCollectCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="15sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- 评论区域 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/white"
+                android:layout_marginTop="8dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="评论"
+                    android:textColor="@color/text_primary_dark"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:padding="16dp"
+                    android:paddingBottom="8dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvComments"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="16dp"
+                    android:paddingBottom="16dp" />
+
+                <!-- 评论输入框 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="16dp"
+                    android:background="@color/bg_light"
+                    android:gravity="center_vertical">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="写评论..."
+                        android:layout_marginEnd="8dp"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etComment"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textMultiLine"
+                            android:maxLines="3"
+                            android:minLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSendComment"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="发送"
+                        android:textColor="@color/white"
+                        app:backgroundTint="@color/primary_blue_gray" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+

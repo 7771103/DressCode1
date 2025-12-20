@@ -484,7 +484,18 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
     @Override
     public void onCommentClick(Post post, int position) {
-        showCommentDialog(post, position);
+        // 跳转到详情页
+        Intent intent = new Intent(this, PostDetailActivity.class);
+        intent.putExtra("post", post);
+        startActivity(intent);
+    }
+
+    @Override
+    public void onPostClick(Post post) {
+        // 点击帖子跳转到详情页
+        Intent intent = new Intent(this, PostDetailActivity.class);
+        intent.putExtra("post", post);
+        startActivity(intent);
     }
 
     @Override

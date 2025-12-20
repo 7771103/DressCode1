@@ -39,6 +39,17 @@ public class ApiClient {
         return service;
     }
 
+    public static String getBaseUrl() {
+        return BASE_URL;
+    }
+
+    public static String getImageUrl(String imagePath) {
+        if (imagePath == null || imagePath.isEmpty()) {
+            return null;
+        }
+        return BASE_URL + "static/images/" + imagePath;
+    }
+
     private ApiClient() {
         // no-op
     }
