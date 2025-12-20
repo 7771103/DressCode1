@@ -21,7 +21,6 @@ import com.example.dresscode1.network.dto.RegisterResponse;
 import com.example.dresscode1.network.dto.UpdatePostRequest;
 import com.example.dresscode1.network.dto.UpdatePostResponse;
 import com.example.dresscode1.network.dto.UpdateUserResponse;
-import com.example.dresscode1.network.dto.WeatherResponse;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
@@ -130,11 +129,6 @@ public interface ApiService {
     Call<ChangePasswordResponse> changePassword(
         @Path("userId") int userId,
         @Body ChangePasswordRequest request
-    );
-
-    @GET("/api/weather")
-    Call<WeatherResponse> getWeather(
-        @Query("city") String city
     );
 }
 

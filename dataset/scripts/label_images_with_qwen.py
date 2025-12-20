@@ -33,15 +33,11 @@ IMG_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 # ------------------ 参数解析 ------------------
 def parse_args() -> argparse.Namespace:
-    # 获取脚本所在目录，用于构建相对于脚本的默认路径
-    script_dir = Path(__file__).parent
-    dataset_dir = script_dir.parent  # dataset 目录
-    
     parser = argparse.ArgumentParser(description="调用阿里大模型为服饰图片打标签（JSON）。")
-    parser.add_argument("--images-dir", type=Path, default=dataset_dir / "data" / "images")
-    parser.add_argument("--prompt-file", type=Path, default=dataset_dir / "configs" / "prompt.md")
-    parser.add_argument("--output", type=Path, default=dataset_dir / "data" / "labels.jsonl")
-    parser.add_argument("--failed-log", type=Path, default=dataset_dir / "data" / "labels_failed.log")
+    parser.add_argument("--images-dir", type=Path, default=Path("data/images"))
+    parser.add_argument("--prompt-file", type=Path, default=Path("configs/prompt.md"))
+    parser.add_argument("--output", type=Path, default=Path("data/labels.jsonl"))
+    parser.add_argument("--failed-log", type=Path, default=Path("data/labels_failed.log"))
     parser.add_argument("--model", default="qwen-vl-plus")
     parser.add_argument("--sample-ratio", type=float, default=1.0)
     parser.add_argument("--max-images", type=int, default=None)

@@ -6,7 +6,6 @@ import android.view.View;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -15,13 +14,6 @@ import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 
 import com.airbnb.lottie.LottieAnimationView;
-import com.example.dresscode1.network.ApiClient;
-import com.example.dresscode1.network.ApiService;
-import com.example.dresscode1.network.dto.WeatherResponse;
-
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 
 public class HomeActivity extends AppCompatActivity {
 
@@ -64,10 +56,6 @@ public class HomeActivity extends AppCompatActivity {
         bindViews();
         initState();
         setupActions();
-        
-        // 加载天气信息和城市信息
-        loadWeatherInfo();
-        updateCityTab();
         
         // 默认显示天气定位Tab
         switchToTab("weather");
@@ -142,7 +130,7 @@ public class HomeActivity extends AppCompatActivity {
         tabProfile.setOnClickListener(v -> switchToProfile());
         
         // 首页Tab切换
-        // 天气Tab仅用于显示天气信息，不可点击
+        tabWeather.setOnClickListener(v -> switchToTab("weather"));
         tabFollow.setOnClickListener(v -> switchToTab("follow"));
         tabRecommend.setOnClickListener(v -> switchToTab("recommend"));
         tabCity.setOnClickListener(v -> switchToTab("city"));
@@ -164,9 +152,8 @@ public class HomeActivity extends AppCompatActivity {
         
         switch (tab) {
             case "weather":
-                // 天气Tab，显示该城市的帖子
-                tabType = "weather";
-                fragment = PostListFragment.newInstance(tabType, currentCity, currentUserId);
+                // 天气定位页面，显示天气和该城市的帖子
+                fragment = WeatherLocationFragment.newInstance(currentCity, currentUserId);
                 break;
             case "follow":
                 tabType = "follow";
@@ -334,81 +321,6 @@ public class HomeActivity extends AppCompatActivity {
         ft.replace(R.id.fragmentContainer, fragment);
         ft.commit();
         currentFragment = fragment;
-    }
-    
-    private void loadWeatherInfo() {
-        // 显示加载中的默认信息
-        tabWeather.setText("加载中...");
-        
-        // 调用天气API获取真实天气数据
-        ApiService apiService = ApiClient.getService();
-        Call<WeatherResponse> call = apiService.getWeather(currentCity);
-        
-        call.enqueue(new Callback<WeatherResponse>() {
-            @Override
-            public void onResponse(Call<WeatherResponse> call, Response<WeatherResponse> response) {
-                if (response.isSuccessful() && response.body() != null) {
-                    WeatherResponse body = response.body();
-                    if (body.isOk() && body.getData() != null) {
-                        WeatherResponse.WeatherData data = body.getData();
-                        
-                        // 格式化天气信息显示
-                        String temperature = data.getTemperature() != null ? data.getTemperature() : "N/A";
-                        String condition = data.getCondition() != null ? data.getCondition() : "未知";
-                        
-                        // 根据天气状况选择emoji
-                        String weatherEmoji = getWeatherEmoji(condition);
-                        
-                        // 显示天气信息
-                        String weatherText = weatherEmoji + " " + temperature + "°C " + condition;
-                        tabWeather.setText(weatherText);
-                    } else {
-                        // API返回错误
-                        tabWeather.setText("☀️ 25°C 晴朗");
-                        if (body.getMsg() != null && !body.getMsg().isEmpty()) {
-                            // 静默失败，不显示Toast
-                        }
-                    }
-                } else {
-                    // HTTP错误
-                    tabWeather.setText("☀️ 25°C 晴朗");
-                }
-            }
-            
-            @Override
-            public void onFailure(Call<WeatherResponse> call, Throwable t) {
-                // 网络错误，显示默认值
-                tabWeather.setText("☀️ 25°C 晴朗");
-            }
-        });
-    }
-    
-    private String getWeatherEmoji(String condition) {
-        if (condition == null) {
-            return "☀️";
-        }
-        
-        // 根据天气状况返回对应的emoji
-        if (condition.contains("晴")) {
-            return "☀️";
-        } else if (condition.contains("云") || condition.contains("阴")) {
-            return "☁️";
-        } else if (condition.contains("雨")) {
-            return "🌧️";
-        } else if (condition.contains("雪")) {
-            return "❄️";
-        } else if (condition.contains("雾") || condition.contains("霾")) {
-            return "🌫️";
-        } else if (condition.contains("风")) {
-            return "💨";
-        } else {
-            return "☀️";
-        }
-    }
-    
-    private void updateCityTab() {
-        // 更新城市Tab显示用户实时所在的城市地址
-        tabCity.setText(currentCity);
     }
 }
 

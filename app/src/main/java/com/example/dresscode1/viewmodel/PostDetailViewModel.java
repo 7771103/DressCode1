@@ -88,118 +88,24 @@ public class PostDetailViewModel extends AndroidViewModel {
         });
     }
 
-    public void toggleLike(int postId, int userId) {
-        // 保存原始状态用于回滚
-        PostEntity currentPost = post.getValue();
-        if (currentPost == null || currentPost.id != postId) {
-            // 如果当前没有帖子数据，直接执行网络请求
-            LiveData<Boolean> likeLiveData = repository.toggleLike(postId, userId);
-            likeLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
-                @Override
-                public void onChanged(Boolean success) {
-                    likeLiveData.removeObserver(this);
-                    likeResult.setValue(success);
-                    if (success != null && success) {
-                        // 刷新帖子详情
-                        refreshPostDetail(postId, userId);
-                    }
-                }
-            });
-            return;
-        }
-        
-        final boolean originalLikeState = currentPost.isLiked;
-        final int originalLikeCount = currentPost.likeCount;
-        final boolean newLikeState = !originalLikeState;
-        
-        // 乐观更新：立即更新本地状态
-        currentPost.isLiked = newLikeState;
-        if (newLikeState) {
-            currentPost.likeCount++;
-        } else {
-            currentPost.likeCount = Math.max(0, currentPost.likeCount - 1);
-        }
-        post.setValue(currentPost);
-        
-        // 执行网络请求
-        LiveData<Boolean> likeLiveData = repository.toggleLike(postId, userId);
+    public void toggleLike(int postId, int userId, boolean currentLikeState) {
+        LiveData<Boolean> likeLiveData = repository.toggleLike(postId, userId, currentLikeState);
         likeLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
             @Override
             public void onChanged(Boolean success) {
                 likeLiveData.removeObserver(this);
-                if (success != null && success) {
-                    likeResult.setValue(true);
-                    // 刷新帖子详情以确保数据同步
-                    refreshPostDetail(postId, userId);
-                } else {
-                    // 操作失败，回滚乐观更新
-                    PostEntity currentPost = post.getValue();
-                    if (currentPost != null && currentPost.id == postId) {
-                        currentPost.isLiked = originalLikeState;
-                        currentPost.likeCount = originalLikeCount;
-                        post.setValue(currentPost);
-                    }
-                    likeResult.setValue(false);
-                    errorMessage.setValue("操作失败，请重试");
-                }
+                likeResult.setValue(success);
             }
         });
     }
 
-    public void toggleFavorite(int postId, int userId) {
-        // 保存原始状态用于回滚
-        PostEntity currentPost = post.getValue();
-        if (currentPost == null || currentPost.id != postId) {
-            // 如果当前没有帖子数据，直接执行网络请求
-            LiveData<Boolean> favoriteLiveData = repository.toggleFavorite(postId, userId);
-            favoriteLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
-                @Override
-                public void onChanged(Boolean success) {
-                    favoriteLiveData.removeObserver(this);
-                    favoriteResult.setValue(success);
-                    if (success != null && success) {
-                        // 刷新帖子详情
-                        refreshPostDetail(postId, userId);
-                    }
-                }
-            });
-            return;
-        }
-        
-        final boolean originalFavoriteState = currentPost.isFavorited;
-        final int originalFavoriteCount = currentPost.favoriteCount;
-        final boolean newFavoriteState = !originalFavoriteState;
-        
-        // 乐观更新：立即更新本地状态
-        currentPost.isFavorited = newFavoriteState;
-        if (newFavoriteState) {
-            currentPost.favoriteCount++;
-        } else {
-            currentPost.favoriteCount = Math.max(0, currentPost.favoriteCount - 1);
-        }
-        post.setValue(currentPost);
-        
-        // 执行网络请求
-        LiveData<Boolean> favoriteLiveData = repository.toggleFavorite(postId, userId);
+    public void toggleFavorite(int postId, int userId, boolean currentFavoriteState) {
+        LiveData<Boolean> favoriteLiveData = repository.toggleFavorite(postId, userId, currentFavoriteState);
         favoriteLiveData.observeForever(new androidx.lifecycle.Observer<Boolean>() {
             @Override
             public void onChanged(Boolean success) {
                 favoriteLiveData.removeObserver(this);
-                if (success != null && success) {
-                    favoriteResult.setValue(true);
-                    // 刷新帖子详情以确保数据同步
-                    refreshPostDetail(postId, userId);
-                } else {
-                    // 操作失败，回滚乐观更新
-                    PostEntity currentPost = post.getValue();
-                    if (currentPost != null && currentPost.id == postId) {
-                        currentPost.isFavorited = originalFavoriteState;
-                        currentPost.favoriteCount = originalFavoriteCount;
-                        post.setValue(currentPost);
-                    }
-                    favoriteResult.setValue(false);
-                    errorMessage.setValue("操作失败，请重试");
-                }
+                favoriteResult.setValue(success);
             }
         });
     }

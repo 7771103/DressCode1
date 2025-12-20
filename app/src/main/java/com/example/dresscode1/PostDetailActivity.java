@@ -277,7 +277,7 @@ public class PostDetailActivity extends AppCompatActivity {
             return;
         }
         
-        viewModel.toggleLike(postId, currentUserId);
+        viewModel.toggleLike(postId, currentUserId, postData.isLiked);
     }
     
     private void toggleFavorite() {
@@ -290,7 +290,7 @@ public class PostDetailActivity extends AppCompatActivity {
             return;
         }
         
-        viewModel.toggleFavorite(postId, currentUserId);
+        viewModel.toggleFavorite(postId, currentUserId, postData.isFavorited);
     }
     
     private void returnUpdatedData() {
