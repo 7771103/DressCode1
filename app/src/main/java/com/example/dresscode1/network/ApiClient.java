@@ -47,6 +47,15 @@ public class ApiClient {
         if (imagePath == null || imagePath.isEmpty()) {
             return null;
         }
+        // 如果已经是完整URL，直接返回
+        if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
+            return imagePath;
+        }
+        // 如果是相对路径（以/开头），拼接BASE_URL
+        if (imagePath.startsWith("/")) {
+            return BASE_URL.substring(0, BASE_URL.length() - 1) + imagePath;
+        }
+        // 否则，假设是旧格式的图片路径（dataset中的图片）
         return BASE_URL + "static/images/" + imagePath;
     }
 

@@ -18,6 +18,7 @@ import com.example.dresscode1.network.dto.ChangePasswordRequest;
 import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.network.dto.UploadAvatarResponse;
+import com.example.dresscode1.network.dto.UploadPostImageResponse;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
@@ -135,6 +136,13 @@ public interface ApiService {
     @POST("/api/user/{userId}/avatar")
     Call<UploadAvatarResponse> uploadAvatar(
             @Path("userId") int userId,
+            @Part MultipartBody.Part file
+    );
+
+    // 上传帖子图片
+    @Multipart
+    @POST("/api/posts/upload-image")
+    Call<UploadPostImageResponse> uploadPostImage(
             @Part MultipartBody.Part file
     );
 }

@@ -22,6 +22,7 @@ import com.example.dresscode1.network.dto.CommentResponse;
 import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
+import com.example.dresscode1.utils.TimeUtils;
 import com.example.dresscode1.utils.UserPrefs;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
@@ -136,7 +137,9 @@ public class PostDetailActivity extends AppCompatActivity {
 
         // 设置时间
         if (post.getCreatedAt() != null && !post.getCreatedAt().isEmpty()) {
-            tvCreatedAt.setText(formatTime(post.getCreatedAt()));
+            tvCreatedAt.setText(TimeUtils.formatRelativeTime(post.getCreatedAt()));
+        } else {
+            tvCreatedAt.setText("");
         }
 
         // 设置内容
@@ -316,15 +319,5 @@ public class PostDetailActivity extends AppCompatActivity {
                 });
     }
 
-    private String formatTime(String timeStr) {
-        try {
-            if (timeStr != null && timeStr.length() > 16) {
-                return timeStr.substring(5, 16);
-            }
-            return timeStr != null ? timeStr : "";
-        } catch (Exception e) {
-            return timeStr != null ? timeStr : "";
-        }
-    }
 }
 

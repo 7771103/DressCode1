@@ -16,6 +16,7 @@ import com.example.dresscode1.PostDetailActivity;
 import com.example.dresscode1.R;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Post;
+import com.example.dresscode1.utils.TimeUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +42,14 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     public void setPosts(List<Post> posts) {
         this.posts = posts != null ? posts : new ArrayList<>();
         notifyDataSetChanged();
+    }
+
+    public void appendPosts(List<Post> newPosts) {
+        if (newPosts != null && !newPosts.isEmpty()) {
+            int startPosition = posts.size();
+            this.posts.addAll(newPosts);
+            notifyItemRangeInserted(startPosition, newPosts.size());
+        }
     }
 
     public void updatePost(int position, Post post) {
@@ -72,6 +81,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     class PostViewHolder extends RecyclerView.ViewHolder {
         private TextView tvUserNickname;
         private ImageView ivUserAvatar;
+        private TextView tvCreatedAt;
         private TextView tvContent;
         private ImageView ivPostImage;
         private TextView tvLikeCount;
@@ -87,6 +97,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             super(itemView);
             tvUserNickname = itemView.findViewById(R.id.tvUserNickname);
             ivUserAvatar = itemView.findViewById(R.id.ivUserAvatar);
+            tvCreatedAt = itemView.findViewById(R.id.tvCreatedAt);
             tvContent = itemView.findViewById(R.id.tvContent);
             ivPostImage = itemView.findViewById(R.id.ivPostImage);
             tvLikeCount = itemView.findViewById(R.id.tvLikeCount);
@@ -118,6 +129,13 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                 // 如果没有头像，显示昵称首字符（使用圆形背景）
                 ivUserAvatar.setImageDrawable(null);
                 // 这里可以设置一个默认的占位图或者保持背景色
+            }
+
+            // 设置时间
+            if (post.getCreatedAt() != null && !post.getCreatedAt().isEmpty()) {
+                tvCreatedAt.setText(TimeUtils.formatRelativeTime(post.getCreatedAt()));
+            } else {
+                tvCreatedAt.setText("");
             }
 
             tvContent.setText(post.getContent() != null ? post.getContent() : "");

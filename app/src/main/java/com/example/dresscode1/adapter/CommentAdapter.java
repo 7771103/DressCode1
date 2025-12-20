@@ -13,6 +13,7 @@ import com.bumptech.glide.Glide;
 import com.example.dresscode1.R;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Comment;
+import com.example.dresscode1.utils.TimeUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,22 +87,9 @@ public class CommentAdapter extends RecyclerView.Adapter<CommentAdapter.CommentV
 
             // 设置时间
             if (comment.getCreatedAt() != null && !comment.getCreatedAt().isEmpty()) {
-                tvCreatedAt.setText(" · " + formatTime(comment.getCreatedAt()));
+                tvCreatedAt.setText(" · " + TimeUtils.formatRelativeTime(comment.getCreatedAt()));
             } else {
                 tvCreatedAt.setText("");
-            }
-        }
-
-        private String formatTime(String timeStr) {
-            // 简化处理，直接显示时间字符串
-            // 可以后续优化为相对时间（如"2小时前"）
-            try {
-                if (timeStr.length() > 16) {
-                    return timeStr.substring(5, 16);
-                }
-                return timeStr;
-            } catch (Exception e) {
-                return timeStr;
             }
         }
     }

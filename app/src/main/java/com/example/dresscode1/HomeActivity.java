@@ -1,18 +1,29 @@
 package com.example.dresscode1;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.view.View;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-
+import androidx.cardview.widget.CardView;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
 
 import androidx.activity.EdgeToEdge;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -32,12 +43,21 @@ import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.PostListResponse;
+
+import java.util.List;
+import com.example.dresscode1.network.dto.UploadPostImageResponse;
 import com.example.dresscode1.network.dto.UserInfo;
 import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.utils.UserPrefs;
 import com.google.android.material.textfield.TextInputEditText;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 import de.hdodenhof.circleimageview.CircleImageView;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.RequestBody;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -76,7 +96,32 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private boolean isHomeTab = true;
     private String currentProfileTab = "posts"; // posts, likes, collections
     
+    // 分页加载相关变量
+    private static final int PAGE_SIZE = 10;
+    private int myPostsPage = 1;
+    private int likedPostsPage = 1;
+    private int collectedPostsPage = 1;
+    private boolean isLoadingMyPosts = false;
+    private boolean isLoadingLikedPosts = false;
+    private boolean isLoadingCollectedPosts = false;
+    private boolean hasMoreMyPosts = true;
+    private boolean hasMoreLikedPosts = true;
+    private boolean hasMoreCollectedPosts = true;
+    
     private ActivityResultLauncher<Intent> editProfileLauncher;
+    private ActivityResultLauncher<Intent> imagePickerLauncher;
+    private ActivityResultLauncher<String> permissionLauncher;
+    
+    // 对话框专用的图片选择器
+    private ActivityResultLauncher<Intent> dialogImagePickerLauncher;
+    private ActivityResultLauncher<String> dialogPermissionLauncher;
+    private boolean dialogImagePickerInitialized = false;
+    
+    // 对话框图片选择回调接口
+    private interface ImagePickerCallback {
+        void onImageSelected(Uri imageUri);
+    }
+    private ImagePickerCallback imagePickerCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,7 +136,79 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         initState();
         setupActions();
         setupEditProfileLauncher();
+        setupImagePicker();
+        setupDialogImagePicker();
         loadPosts();
+    }
+    
+    private void setupImagePicker() {
+        imagePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    // 这个回调会在 showCreatePostDialog 中处理
+                }
+        );
+
+        permissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        // 权限授予后，由对话框中的 launcher 处理
+                    } else {
+                        Toast.makeText(this, "需要存储权限才能选择图片", Toast.LENGTH_SHORT).show();
+                    }
+                }
+        );
+    }
+    
+    private void setupDialogImagePicker() {
+        // 防止重复注册
+        if (dialogImagePickerInitialized) {
+            return;
+        }
+        
+        try {
+            // 注册对话框图片选择回调
+            dialogImagePickerLauncher = registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                            Uri imageUri = result.getData().getData();
+                            if (imageUri != null && imagePickerCallback != null) {
+                                imagePickerCallback.onImageSelected(imageUri);
+                            }
+                        }
+                    }
+            );
+            
+            // 注册对话框权限请求回调
+            dialogPermissionLauncher = registerForActivityResult(
+                    new ActivityResultContracts.RequestPermission(),
+                    isGranted -> {
+                        if (isGranted) {
+                            Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                            if (dialogImagePickerLauncher != null) {
+                                dialogImagePickerLauncher.launch(intent);
+                            }
+                        } else {
+                            Toast.makeText(this, "需要存储权限才能选择图片", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+            );
+            
+            dialogImagePickerInitialized = true;
+        } catch (IllegalStateException e) {
+            // 如果 Activity 已经 RESUMED，无法注册，记录错误但不崩溃
+            android.util.Log.e("HomeActivity", "Failed to register dialog image picker launcher", e);
+        }
+    }
+    
+    private String getStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return Manifest.permission.READ_MEDIA_IMAGES;
+        } else {
+            return Manifest.permission.READ_EXTERNAL_STORAGE;
+        }
     }
     
     private void setupEditProfileLauncher() {
@@ -164,8 +281,37 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         rvPosts.setAdapter(postAdapter);
         
         myPostAdapter = new PostAdapter(this, currentUserId);
-        rvMyPosts.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayoutManager myPostsLayoutManager = new LinearLayoutManager(this);
+        rvMyPosts.setLayoutManager(myPostsLayoutManager);
         rvMyPosts.setAdapter(myPostAdapter);
+        
+        // 添加滚动监听，实现分页加载
+        rvMyPosts.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                super.onScrolled(recyclerView, dx, dy);
+                
+                LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (layoutManager == null) return;
+                
+                int visibleItemCount = layoutManager.getChildCount();
+                int totalItemCount = layoutManager.getItemCount();
+                int firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition();
+                
+                // 当滚动到接近底部时（剩余3个item时）加载更多
+                if (!isLoadingMyPosts && !isLoadingLikedPosts && !isLoadingCollectedPosts) {
+                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 3) {
+                        if (currentProfileTab.equals("posts") && hasMoreMyPosts) {
+                            loadMoreMyPosts();
+                        } else if (currentProfileTab.equals("likes") && hasMoreLikedPosts) {
+                            loadMoreLikedPosts();
+                        } else if (currentProfileTab.equals("collections") && hasMoreCollectedPosts) {
+                            loadMoreCollectedPosts();
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private void setupActions() {
@@ -302,21 +448,77 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
-        ApiClient.getService().getLikedPosts(currentUserId, 1, 20)
+        // 重置分页状态
+        likedPostsPage = 1;
+        hasMoreLikedPosts = true;
+        isLoadingLikedPosts = false;
+        
+        // 首次加载10条
+        ApiClient.getService().getLikedPosts(currentUserId, 1, PAGE_SIZE)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingLikedPosts = false;
                         if (response.isSuccessful() && response.body() != null) {
                             PostListResponse postListResponse = response.body();
                             if (postListResponse.isOk() && postListResponse.getData() != null) {
-                                myPostAdapter.setPosts(postListResponse.getData());
+                                List<Post> posts = postListResponse.getData();
+                                myPostAdapter.setPosts(posts);
+                                // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                if (posts.size() < PAGE_SIZE) {
+                                    hasMoreLikedPosts = false;
+                                }
                             }
                         }
                     }
 
                     @Override
                     public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingLikedPosts = false;
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void loadMoreLikedPosts() {
+        if (isLoadingLikedPosts || !hasMoreLikedPosts || currentUserId <= 0) {
+            return;
+        }
+        
+        isLoadingLikedPosts = true;
+        likedPostsPage++;
+        
+        ApiClient.getService().getLikedPosts(currentUserId, likedPostsPage, PAGE_SIZE)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingLikedPosts = false;
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                List<Post> posts = postListResponse.getData();
+                                if (posts.isEmpty()) {
+                                    hasMoreLikedPosts = false;
+                                } else {
+                                    myPostAdapter.appendPosts(posts);
+                                    // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                    if (posts.size() < PAGE_SIZE) {
+                                        hasMoreLikedPosts = false;
+                                    }
+                                }
+                            } else {
+                                hasMoreLikedPosts = false;
+                            }
+                        } else {
+                            hasMoreLikedPosts = false;
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingLikedPosts = false;
+                        likedPostsPage--; // 失败时回退页码
+                        Toast.makeText(HomeActivity.this, "加载更多失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
     }
@@ -327,21 +529,77 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
-        ApiClient.getService().getCollectedPosts(currentUserId, 1, 20)
+        // 重置分页状态
+        collectedPostsPage = 1;
+        hasMoreCollectedPosts = true;
+        isLoadingCollectedPosts = false;
+        
+        // 首次加载10条
+        ApiClient.getService().getCollectedPosts(currentUserId, 1, PAGE_SIZE)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingCollectedPosts = false;
                         if (response.isSuccessful() && response.body() != null) {
                             PostListResponse postListResponse = response.body();
                             if (postListResponse.isOk() && postListResponse.getData() != null) {
-                                myPostAdapter.setPosts(postListResponse.getData());
+                                List<Post> posts = postListResponse.getData();
+                                myPostAdapter.setPosts(posts);
+                                // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                if (posts.size() < PAGE_SIZE) {
+                                    hasMoreCollectedPosts = false;
+                                }
                             }
                         }
                     }
 
                     @Override
                     public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingCollectedPosts = false;
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void loadMoreCollectedPosts() {
+        if (isLoadingCollectedPosts || !hasMoreCollectedPosts || currentUserId <= 0) {
+            return;
+        }
+        
+        isLoadingCollectedPosts = true;
+        collectedPostsPage++;
+        
+        ApiClient.getService().getCollectedPosts(currentUserId, collectedPostsPage, PAGE_SIZE)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingCollectedPosts = false;
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                List<Post> posts = postListResponse.getData();
+                                if (posts.isEmpty()) {
+                                    hasMoreCollectedPosts = false;
+                                } else {
+                                    myPostAdapter.appendPosts(posts);
+                                    // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                    if (posts.size() < PAGE_SIZE) {
+                                        hasMoreCollectedPosts = false;
+                                    }
+                                }
+                            } else {
+                                hasMoreCollectedPosts = false;
+                            }
+                        } else {
+                            hasMoreCollectedPosts = false;
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingCollectedPosts = false;
+                        collectedPostsPage--; // 失败时回退页码
+                        Toast.makeText(HomeActivity.this, "加载更多失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
     }
@@ -352,28 +610,149 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
+        // 确保 launcher 已初始化（不应该为 null，但如果为 null 则显示错误）
+        if (dialogImagePickerLauncher == null || dialogPermissionLauncher == null) {
+            Toast.makeText(this, "系统错误，请重启应用", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_create_post, null);
-        TextInputEditText etImagePath = dialogView.findViewById(R.id.etImagePath);
+        CardView cardImagePreview = dialogView.findViewById(R.id.cardImagePreview);
+        ImageView ivPostImagePreview = dialogView.findViewById(R.id.ivPostImagePreview);
+        ImageButton btnRemoveImage = dialogView.findViewById(R.id.btnRemoveImage);
+        Button btnSelectImage = dialogView.findViewById(R.id.btnSelectImage);
         TextInputEditText etContent = dialogView.findViewById(R.id.etContent);
+        
+        Uri[] selectedImageUri = {null};
+        String[] uploadedImagePath = {null};
+        
+        // 设置删除图片按钮点击事件
+        btnRemoveImage.setOnClickListener(v -> {
+            selectedImageUri[0] = null;
+            uploadedImagePath[0] = null;
+            cardImagePreview.setVisibility(View.GONE);
+        });
+        
+        // 设置图片选择回调
+        imagePickerCallback = imageUri -> {
+            selectedImageUri[0] = imageUri;
+            // 显示选中的图片
+            Glide.with(this)
+                    .load(imageUri)
+                    .centerCrop()
+                    .into(ivPostImagePreview);
+            cardImagePreview.setVisibility(View.VISIBLE);
+        };
+        
+        // 设置图片选择按钮点击事件
+        btnSelectImage.setOnClickListener(v -> {
+            String permission = getStoragePermission();
+            if (ContextCompat.checkSelfPermission(this, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
+                if (dialogPermissionLauncher != null) {
+                    dialogPermissionLauncher.launch(permission);
+                } else {
+                    Toast.makeText(this, "系统错误，请重试", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                if (dialogImagePickerLauncher != null) {
+                    dialogImagePickerLauncher.launch(intent);
+                } else {
+                    Toast.makeText(this, "系统错误，请重试", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
         
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("发帖")
                 .setView(dialogView)
                 .setPositiveButton("发布", (d, w) -> {
-                    String imagePath = etImagePath.getText() != null ? etImagePath.getText().toString().trim() : "";
                     String content = etContent.getText() != null ? etContent.getText().toString().trim() : "";
                     
-                    if (imagePath.isEmpty()) {
-                        Toast.makeText(this, "请输入图片路径", Toast.LENGTH_SHORT).show();
+                    if (selectedImageUri[0] == null && uploadedImagePath[0] == null) {
+                        Toast.makeText(this, "请选择图片", Toast.LENGTH_SHORT).show();
                         return;
                     }
                     
-                    createPost(imagePath, content);
+                    // 如果图片还没有上传，先上传图片
+                    if (uploadedImagePath[0] == null && selectedImageUri[0] != null) {
+                        uploadPostImageAndCreatePost(selectedImageUri[0], content);
+                    } else {
+                        // 图片已经上传，直接创建帖子
+                        createPost(uploadedImagePath[0], content);
+                    }
                 })
                 .setNegativeButton("取消", null)
                 .create();
         
         dialog.show();
+    }
+    
+    private void uploadPostImageAndCreatePost(Uri imageUri, String content) {
+        try {
+            // 从 URI 获取输入流
+            InputStream inputStream = getContentResolver().openInputStream(imageUri);
+            if (inputStream == null) {
+                Toast.makeText(this, "无法读取图片", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // 读取图片数据
+            byte[] imageBytes = new byte[inputStream.available()];
+            inputStream.read(imageBytes);
+            inputStream.close();
+
+            // 获取文件扩展名
+            String mimeType = getContentResolver().getType(imageUri);
+            String extension = "jpg";
+            if (mimeType != null) {
+                if (mimeType.contains("png")) {
+                    extension = "png";
+                } else if (mimeType.contains("jpeg") || mimeType.contains("jpg")) {
+                    extension = "jpg";
+                } else if (mimeType.contains("gif")) {
+                    extension = "gif";
+                } else if (mimeType.contains("webp")) {
+                    extension = "webp";
+                }
+            }
+
+            // 创建 RequestBody
+            RequestBody requestFile = RequestBody.create(
+                    MediaType.parse(mimeType != null ? mimeType : "image/jpeg"),
+                    imageBytes
+            );
+
+            // 创建 MultipartBody.Part
+            MultipartBody.Part body = MultipartBody.Part.createFormData("file", "post." + extension, requestFile);
+
+            // 上传图片
+            ApiClient.getService().uploadPostImage(body)
+                    .enqueue(new Callback<UploadPostImageResponse>() {
+                        @Override
+                        public void onResponse(Call<UploadPostImageResponse> call, Response<UploadPostImageResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                UploadPostImageResponse uploadResponse = response.body();
+                                if (uploadResponse.isOk()) {
+                                    // 图片上传成功，创建帖子
+                                    createPost(uploadResponse.getImagePath(), content);
+                                } else {
+                                    Toast.makeText(HomeActivity.this, uploadResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                                }
+                            } else {
+                                Toast.makeText(HomeActivity.this, "图片上传失败", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UploadPostImageResponse> call, Throwable t) {
+                            Toast.makeText(HomeActivity.this, "图片上传失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+        } catch (IOException e) {
+            Toast.makeText(this, "读取图片失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
     
     private void createPost(String imagePath, String content) {
@@ -388,7 +767,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 Toast.makeText(HomeActivity.this, "发帖成功", Toast.LENGTH_SHORT).show();
                                 // 刷新用户信息和帖子列表
                                 loadUserInfo();
-                                switchProfileTab(currentProfileTab);
+                                loadPosts(); // 刷新首页帖子列表
+                                // 如果当前在"我的"页面，切换到"我的帖子"标签并刷新
+                                if (!isHomeTab) {
+                                    switchProfileTab("posts");
+                                } else {
+                                    // 如果在首页，也预加载我的帖子，以便用户切换到我的页面时能看到
+                                    loadMyPosts();
+                                }
                             } else {
                                 Toast.makeText(HomeActivity.this, createPostResponse.getMsg(), Toast.LENGTH_SHORT).show();
                             }
@@ -453,21 +839,77 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
-        ApiClient.getService().getMyPosts(currentUserId, 1, 20)
+        // 重置分页状态
+        myPostsPage = 1;
+        hasMoreMyPosts = true;
+        isLoadingMyPosts = false;
+        
+        // 首次加载10条
+        ApiClient.getService().getMyPosts(currentUserId, 1, PAGE_SIZE)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingMyPosts = false;
                         if (response.isSuccessful() && response.body() != null) {
                             PostListResponse postListResponse = response.body();
                             if (postListResponse.isOk() && postListResponse.getData() != null) {
-                                myPostAdapter.setPosts(postListResponse.getData());
+                                List<Post> posts = postListResponse.getData();
+                                myPostAdapter.setPosts(posts);
+                                // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                if (posts.size() < PAGE_SIZE) {
+                                    hasMoreMyPosts = false;
+                                }
                             }
                         }
                     }
 
                     @Override
                     public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingMyPosts = false;
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void loadMoreMyPosts() {
+        if (isLoadingMyPosts || !hasMoreMyPosts || currentUserId <= 0) {
+            return;
+        }
+        
+        isLoadingMyPosts = true;
+        myPostsPage++;
+        
+        ApiClient.getService().getMyPosts(currentUserId, myPostsPage, PAGE_SIZE)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingMyPosts = false;
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                List<Post> posts = postListResponse.getData();
+                                if (posts.isEmpty()) {
+                                    hasMoreMyPosts = false;
+                                } else {
+                                    myPostAdapter.appendPosts(posts);
+                                    // 如果返回的数据少于PAGE_SIZE，说明没有更多数据了
+                                    if (posts.size() < PAGE_SIZE) {
+                                        hasMoreMyPosts = false;
+                                    }
+                                }
+                            } else {
+                                hasMoreMyPosts = false;
+                            }
+                        } else {
+                            hasMoreMyPosts = false;
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingMyPosts = false;
+                        myPostsPage--; // 失败时回退页码
+                        Toast.makeText(HomeActivity.this, "加载更多失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
     }

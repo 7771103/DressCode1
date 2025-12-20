@@ -25,6 +25,12 @@ def create_app():
     )
     os.makedirs(avatars_path, exist_ok=True)
     
+    # 配置帖子图片上传目录
+    posts_images_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "posts_images"
+    )
+    os.makedirs(posts_images_path, exist_ok=True)
+    
     @app.route("/static/images/<path:filename>")
     def serve_image(filename):
         from flask import send_from_directory
@@ -34,6 +40,11 @@ def create_app():
     def serve_avatar(filename):
         from flask import send_from_directory
         return send_from_directory(avatars_path, filename)
+    
+    @app.route("/static/posts/<path:filename>")
+    def serve_post_image(filename):
+        from flask import send_from_directory
+        return send_from_directory(posts_images_path, filename)
 
     user = os.environ.get("MYSQL_USER", "root")
     password = os.environ.get("MYSQL_PASSWORD", "123456")
@@ -435,19 +446,20 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
 
-        # 获取用户点赞的帖子ID列表
-        likes = (
-            Like.query.filter_by(user_id=user_id)
-            .order_by(Like.created_at.desc())
-            .paginate(page=page, per_page=page_size, error_out=False)
+        # 使用 JOIN 查询，按帖子创建时间倒序排列
+        query = (
+            db.session.query(Post, Like)
+            .join(Like, Post.id == Like.post_id)
+            .filter(Like.user_id == user_id)
+            .order_by(Post.created_at.desc())
         )
+        
+        # 手动实现分页
+        total = query.count()
+        posts_with_likes = query.offset((page - 1) * page_size).limit(page_size).all()
 
         result = []
-        for like in likes.items:
-            post = Post.query.get(like.post_id)
-            if not post:
-                continue
-
+        for post, like in posts_with_likes:
             user = User.query.get(post.user_id)
             is_liked = True  # 用户已经点赞
             is_collected = (
@@ -478,7 +490,7 @@ def create_app():
                 "data": result,
                 "page": page,
                 "pageSize": page_size,
-                "total": likes.total,
+                "total": total,
             }
         ), 200
 
@@ -492,19 +504,20 @@ def create_app():
         page = request.args.get("page", 1, type=int)
         page_size = request.args.get("page_size", 20, type=int)
 
-        # 获取用户收藏的帖子ID列表
-        collections = (
-            Collection.query.filter_by(user_id=user_id)
-            .order_by(Collection.created_at.desc())
-            .paginate(page=page, per_page=page_size, error_out=False)
+        # 使用 JOIN 查询，按帖子创建时间倒序排列
+        query = (
+            db.session.query(Post, Collection)
+            .join(Collection, Post.id == Collection.post_id)
+            .filter(Collection.user_id == user_id)
+            .order_by(Post.created_at.desc())
         )
+        
+        # 手动实现分页
+        total = query.count()
+        posts_with_collections = query.offset((page - 1) * page_size).limit(page_size).all()
 
         result = []
-        for collection in collections.items:
-            post = Post.query.get(collection.post_id)
-            if not post:
-                continue
-
+        for post, collection in posts_with_collections:
             user = User.query.get(post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=user_id, post_id=post.id).first()
@@ -535,7 +548,7 @@ def create_app():
                 "data": result,
                 "page": page,
                 "pageSize": page_size,
-                "total": collections.total,
+                "total": total,
             }
         ), 200
 
@@ -648,6 +661,41 @@ def create_app():
         db.session.commit()
         
         return jsonify({"ok": True, "msg": "密码修改成功"}), 200
+    
+    # 上传帖子图片
+    @app.route("/api/posts/upload-image", methods=["POST"])
+    def upload_post_image():
+        if "file" not in request.files:
+            return jsonify({"ok": False, "msg": "没有上传文件"}), 400
+        
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"ok": False, "msg": "文件名为空"}), 400
+        
+        # 检查文件类型
+        allowed_extensions = {"png", "jpg", "jpeg", "gif", "webp"}
+        filename = file.filename
+        if "." not in filename or filename.rsplit(".", 1)[1].lower() not in allowed_extensions:
+            return jsonify({"ok": False, "msg": "不支持的文件类型，仅支持：png, jpg, jpeg, gif, webp"}), 400
+        
+        # 生成唯一文件名
+        file_ext = filename.rsplit(".", 1)[1].lower()
+        unique_filename = f"post_{uuid.uuid4().hex}.{file_ext}"
+        secure_name = secure_filename(unique_filename)
+        file_path = os.path.join(posts_images_path, secure_name)
+        
+        try:
+            file.save(file_path)
+            # 返回相对路径
+            image_path = f"/static/posts/{secure_name}"
+            
+            return jsonify({
+                "ok": True,
+                "msg": "上传成功",
+                "image_path": image_path
+            }), 200
+        except Exception as e:
+            return jsonify({"ok": False, "msg": f"上传失败: {str(e)}"}), 500
     
     # 创建帖子
     @app.route("/api/posts", methods=["POST"])
