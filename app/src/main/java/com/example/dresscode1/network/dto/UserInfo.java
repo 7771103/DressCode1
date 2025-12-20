@@ -15,6 +15,12 @@ public class UserInfo {
     @SerializedName("avatar")
     private String avatar;
 
+    @SerializedName("age")
+    private Integer age;
+
+    @SerializedName("gender")
+    private String gender;
+
     @SerializedName("postCount")
     private int postCount;
 
@@ -78,6 +84,22 @@ public class UserInfo {
 
     public void setCollectCount(int collectCount) {
         this.collectCount = collectCount;
+    }
+
+    public Integer getAge() {
+        return age;
+    }
+
+    public void setAge(Integer age) {
+        this.age = age;
+    }
+
+    public String getGender() {
+        return gender;
+    }
+
+    public void setGender(String gender) {
+        this.gender = gender;
     }
 }
 

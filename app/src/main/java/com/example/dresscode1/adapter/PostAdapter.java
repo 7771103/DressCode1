@@ -71,7 +71,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
 
     class PostViewHolder extends RecyclerView.ViewHolder {
         private TextView tvUserNickname;
-        private TextView tvUserAvatar;
+        private ImageView ivUserAvatar;
         private TextView tvContent;
         private ImageView ivPostImage;
         private TextView tvLikeCount;
@@ -86,7 +86,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         public PostViewHolder(@NonNull View itemView) {
             super(itemView);
             tvUserNickname = itemView.findViewById(R.id.tvUserNickname);
-            tvUserAvatar = itemView.findViewById(R.id.tvUserAvatar);
+            ivUserAvatar = itemView.findViewById(R.id.ivUserAvatar);
             tvContent = itemView.findViewById(R.id.tvContent);
             ivPostImage = itemView.findViewById(R.id.ivPostImage);
             tvLikeCount = itemView.findViewById(R.id.tvLikeCount);
@@ -102,12 +102,22 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         public void bind(Post post) {
             tvUserNickname.setText(post.getUserNickname() != null ? post.getUserNickname() : "未知用户");
             
-            // 设置头像（简化处理，显示昵称首字符）
-            if (post.getUserNickname() != null && !post.getUserNickname().isEmpty()) {
-                String firstChar = post.getUserNickname().substring(0, 1);
-                tvUserAvatar.setText(firstChar);
+            // 加载用户头像
+            String avatarUrl = ApiClient.getAvatarUrl(post.getUserAvatar());
+            String nickname = post.getUserNickname() != null && !post.getUserNickname().isEmpty() 
+                ? post.getUserNickname().substring(0, 1) : "?";
+            
+            if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                Glide.with(itemView.getContext())
+                        .load(avatarUrl)
+                        .circleCrop()
+                        .placeholder(android.R.drawable.ic_menu_gallery)
+                        .error(android.R.drawable.ic_menu_gallery)
+                        .into(ivUserAvatar);
             } else {
-                tvUserAvatar.setText("?");
+                // 如果没有头像，显示昵称首字符（使用圆形背景）
+                ivUserAvatar.setImageDrawable(null);
+                // 这里可以设置一个默认的占位图或者保持背景色
             }
 
             tvContent.setText(post.getContent() != null ? post.getContent() : "");

@@ -34,7 +34,7 @@ import retrofit2.Response;
 public class PostDetailActivity extends AppCompatActivity {
 
     private MaterialToolbar toolbar;
-    private TextView tvUserAvatar;
+    private ImageView ivUserAvatar;
     private TextView tvUserNickname;
     private TextView tvCreatedAt;
     private TextView tvContent;
@@ -82,7 +82,7 @@ public class PostDetailActivity extends AppCompatActivity {
 
     private void bindViews() {
         toolbar = findViewById(R.id.toolbar);
-        tvUserAvatar = findViewById(R.id.tvUserAvatar);
+        ivUserAvatar = findViewById(R.id.ivUserAvatar);
         tvUserNickname = findViewById(R.id.tvUserNickname);
         tvCreatedAt = findViewById(R.id.tvCreatedAt);
         tvContent = findViewById(R.id.tvContent);
@@ -119,11 +119,19 @@ public class PostDetailActivity extends AppCompatActivity {
 
         // 设置用户信息
         tvUserNickname.setText(post.getUserNickname() != null ? post.getUserNickname() : "未知用户");
-        if (post.getUserNickname() != null && !post.getUserNickname().isEmpty()) {
-            String firstChar = post.getUserNickname().substring(0, 1);
-            tvUserAvatar.setText(firstChar);
+        
+        // 加载用户头像
+        String avatarUrl = ApiClient.getAvatarUrl(post.getUserAvatar());
+        if (avatarUrl != null && !avatarUrl.isEmpty()) {
+            Glide.with(this)
+                    .load(avatarUrl)
+                    .circleCrop()
+                    .placeholder(android.R.drawable.ic_menu_gallery)
+                    .error(android.R.drawable.ic_menu_gallery)
+                    .into(ivUserAvatar);
         } else {
-            tvUserAvatar.setText("?");
+            // 如果没有头像，清除图片显示
+            ivUserAvatar.setImageDrawable(null);
         }
 
         // 设置时间

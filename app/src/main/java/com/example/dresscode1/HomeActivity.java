@@ -7,6 +7,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+
 import androidx.core.widget.NestedScrollView;
 
 import androidx.activity.EdgeToEdge;
@@ -58,6 +61,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvPostCount;
     private TextView tvLikeCount;
     private TextView tvCollectCount;
+    private TextView btnEditProfile;
     private TextView btnLogout;
     private TextView btnCreatePost;
     private TextView tabMyPosts;
@@ -71,6 +75,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private int currentUserId;
     private boolean isHomeTab = true;
     private String currentProfileTab = "posts"; // posts, likes, collections
+    
+    private ActivityResultLauncher<Intent> editProfileLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,7 +90,26 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         bindViews();
         initState();
         setupActions();
+        setupEditProfileLauncher();
         loadPosts();
+    }
+    
+    private void setupEditProfileLauncher() {
+        editProfileLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK) {
+                        // 刷新用户信息
+                        loadUserInfo();
+                        // 刷新帖子列表，确保头像更新
+                        loadPosts();
+                        // 如果当前在"我的"页面，也刷新我的帖子列表
+                        if (!isHomeTab) {
+                            switchProfileTab(currentProfileTab);
+                        }
+                    }
+                }
+        );
     }
 
     private void bindViews() {
@@ -105,6 +130,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvPostCount = findViewById(R.id.tvPostCount);
         tvLikeCount = findViewById(R.id.tvLikeCount);
         tvCollectCount = findViewById(R.id.tvCollectCount);
+        btnEditProfile = findViewById(R.id.btnEditProfile);
         btnLogout = findViewById(R.id.btnLogout);
         btnCreatePost = findViewById(R.id.btnCreatePost);
         tabMyPosts = findViewById(R.id.tabMyPosts);
@@ -147,6 +173,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabProfile.setOnClickListener(v -> switchToProfile());
         
         // 我的页面操作
+        btnEditProfile.setOnClickListener(v -> openEditProfile());
         btnLogout.setOnClickListener(v -> showLogoutDialog());
         btnCreatePost.setOnClickListener(v -> showCreatePostDialog());
         tabMyPosts.setOnClickListener(v -> switchProfileTab("posts"));
@@ -375,6 +402,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 });
     }
     
+    private void openEditProfile() {
+        Intent intent = new Intent(this, EditProfileActivity.class);
+        editProfileLauncher.launch(intent);
+    }
+
     private void showLogoutDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("退出登录")

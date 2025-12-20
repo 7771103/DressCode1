@@ -99,17 +99,37 @@
                             android:layout_marginTop="4dp" />
                     </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/btnLogout"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="退出登录"
-                        android:textSize="14sp"
-                        android:textColor="@color/error_red"
-                        android:padding="8dp"
-                        android:background="?attr/selectableItemBackground"
-                        android:clickable="true"
-                        android:focusable="true" />
+                        android:orientation="vertical"
+                        android:gravity="end">
+
+                        <TextView
+                            android:id="@+id/btnEditProfile"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="编辑资料"
+                            android:textSize="14sp"
+                            android:textColor="@color/primary_blue_gray"
+                            android:padding="8dp"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true" />
+
+                        <TextView
+                            android:id="@+id/btnLogout"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="退出登录"
+                            android:textSize="14sp"
+                            android:textColor="@color/error_red"
+                            android:padding="8dp"
+                            android:layout_marginTop="4dp"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 统计信息 -->

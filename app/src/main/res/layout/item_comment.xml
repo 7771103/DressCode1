@@ -6,17 +6,15 @@
     android:padding="12dp"
     android:paddingBottom="16dp">
 
-    <TextView
-        android:id="@+id/tvUserAvatar"
+    <ImageView
+        android:id="@+id/ivUserAvatar"
         android:layout_width="36dp"
         android:layout_height="36dp"
+        android:scaleType="centerCrop"
         android:background="@drawable/ic_launcher_background"
-        android:gravity="center"
-        android:text="头像"
-        android:textColor="@color/white"
-        android:textSize="14sp"
         android:backgroundTint="@color/primary_blue_gray"
-        android:layout_marginEnd="12dp" />
+        android:layout_marginEnd="12dp"
+        android:contentDescription="用户头像" />
 
     <LinearLayout
         android:layout_width="0dp"

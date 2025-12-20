@@ -2,10 +2,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from datetime import datetime
 import pymysql
 import re
 import os
+import uuid
 
 
 def create_app():
@@ -17,10 +19,21 @@ def create_app():
         os.path.dirname(os.path.dirname(__file__)), "dataset", "data", "images"
     )
     
+    # 配置头像上传目录
+    avatars_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "avatars"
+    )
+    os.makedirs(avatars_path, exist_ok=True)
+    
     @app.route("/static/images/<path:filename>")
     def serve_image(filename):
         from flask import send_from_directory
         return send_from_directory(dataset_images_path, filename)
+    
+    @app.route("/static/avatars/<path:filename>")
+    def serve_avatar(filename):
+        from flask import send_from_directory
+        return send_from_directory(avatars_path, filename)
 
     user = os.environ.get("MYSQL_USER", "root")
     password = os.environ.get("MYSQL_PASSWORD", "123456")
@@ -42,6 +55,8 @@ def create_app():
         password_hash = db.Column(db.String(255), nullable=False)
         nickname = db.Column(db.String(50))
         avatar = db.Column(db.String(255))
+        age = db.Column(db.Integer)
+        gender = db.Column(db.String(10))
 
     class Post(db.Model):
         __tablename__ = "posts"
@@ -401,6 +416,8 @@ def create_app():
                     "phone": user.phone,
                     "nickname": user.nickname,
                     "avatar": user.avatar,
+                    "age": user.age,
+                    "gender": user.gender,
                     "postCount": post_count,
                     "likeCount": like_count,
                     "collectCount": collect_count,
@@ -522,6 +539,116 @@ def create_app():
             }
         ), 200
 
+    # 更新用户信息
+    @app.route("/api/user/<int:user_id>", methods=["PUT"])
+    def update_user(user_id):
+        data = request.get_json(silent=True) or {}
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+        
+        # 更新昵称
+        if "nickname" in data:
+            nickname = (data.get("nickname") or "").strip() or None
+            user.nickname = nickname
+        
+        # 更新头像路径
+        if "avatar" in data:
+            avatar = (data.get("avatar") or "").strip() or None
+            user.avatar = avatar
+        
+        # 更新年龄
+        if "age" in data:
+            age = data.get("age")
+            if age is not None:
+                try:
+                    age = int(age)
+                    if age < 0 or age > 150:
+                        return jsonify({"ok": False, "msg": "年龄必须在0-150之间"}), 400
+                    user.age = age
+                except (ValueError, TypeError):
+                    return jsonify({"ok": False, "msg": "年龄格式错误"}), 400
+            else:
+                user.age = None
+        
+        # 更新性别
+        if "gender" in data:
+            gender = (data.get("gender") or "").strip() or None
+            if gender and gender not in ["男", "女", "其他"]:
+                return jsonify({"ok": False, "msg": "性别只能是：男、女、其他"}), 400
+            user.gender = gender
+        
+        db.session.commit()
+        
+        return jsonify({"ok": True, "msg": "更新成功"}), 200
+    
+    # 上传头像
+    @app.route("/api/user/<int:user_id>/avatar", methods=["POST"])
+    def upload_avatar(user_id):
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+        
+        if "file" not in request.files:
+            return jsonify({"ok": False, "msg": "没有上传文件"}), 400
+        
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"ok": False, "msg": "文件名为空"}), 400
+        
+        # 检查文件类型
+        allowed_extensions = {"png", "jpg", "jpeg", "gif", "webp"}
+        filename = file.filename
+        if "." not in filename or filename.rsplit(".", 1)[1].lower() not in allowed_extensions:
+            return jsonify({"ok": False, "msg": "不支持的文件类型，仅支持：png, jpg, jpeg, gif, webp"}), 400
+        
+        # 生成唯一文件名
+        file_ext = filename.rsplit(".", 1)[1].lower()
+        unique_filename = f"{user_id}_{uuid.uuid4().hex}.{file_ext}"
+        secure_name = secure_filename(unique_filename)
+        file_path = os.path.join(avatars_path, secure_name)
+        
+        try:
+            file.save(file_path)
+            # 保存相对路径到数据库
+            avatar_path = f"/static/avatars/{secure_name}"
+            user.avatar = avatar_path
+            db.session.commit()
+            
+            return jsonify({
+                "ok": True,
+                "msg": "上传成功",
+                "avatar": avatar_path
+            }), 200
+        except Exception as e:
+            return jsonify({"ok": False, "msg": f"上传失败: {str(e)}"}), 500
+    
+    # 修改密码
+    @app.route("/api/user/<int:user_id>/password", methods=["PUT"])
+    def change_password(user_id):
+        data = request.get_json(silent=True) or {}
+        old_password = (data.get("oldPassword") or "").strip()
+        new_password = (data.get("newPassword") or "").strip()
+        
+        if not old_password or not new_password:
+            return jsonify({"ok": False, "msg": "原密码和新密码必填"}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({"ok": False, "msg": "新密码至少6位"}), 400
+        
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"ok": False, "msg": "用户不存在"}), 404
+        
+        if not check_password_hash(user.password_hash, old_password):
+            return jsonify({"ok": False, "msg": "原密码错误"}), 401
+        
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        
+        return jsonify({"ok": True, "msg": "密码修改成功"}), 200
+    
     # 创建帖子
     @app.route("/api/posts", methods=["POST"])
     def create_post():

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `password_hash` VARCHAR(255) NOT NULL,
   `nickname` VARCHAR(50) DEFAULT NULL,
   `avatar` VARCHAR(255) DEFAULT NULL,
+  `age` INT DEFAULT NULL,
+  `gender` VARCHAR(10) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_users_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -3,12 +3,15 @@ package com.example.dresscode1.adapter;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.bumptech.glide.Glide;
 import com.example.dresscode1.R;
+import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Comment;
 
 import java.util.ArrayList;
@@ -50,14 +53,14 @@ public class CommentAdapter extends RecyclerView.Adapter<CommentAdapter.CommentV
     }
 
     class CommentViewHolder extends RecyclerView.ViewHolder {
-        private TextView tvUserAvatar;
+        private ImageView ivUserAvatar;
         private TextView tvUserNickname;
         private TextView tvContent;
         private TextView tvCreatedAt;
 
         public CommentViewHolder(@NonNull View itemView) {
             super(itemView);
-            tvUserAvatar = itemView.findViewById(R.id.tvUserAvatar);
+            ivUserAvatar = itemView.findViewById(R.id.ivUserAvatar);
             tvUserNickname = itemView.findViewById(R.id.tvUserNickname);
             tvContent = itemView.findViewById(R.id.tvContent);
             tvCreatedAt = itemView.findViewById(R.id.tvCreatedAt);
@@ -67,12 +70,18 @@ public class CommentAdapter extends RecyclerView.Adapter<CommentAdapter.CommentV
             tvUserNickname.setText(comment.getUserNickname() != null ? comment.getUserNickname() : "未知用户");
             tvContent.setText(comment.getContent() != null ? comment.getContent() : "");
             
-            // 设置头像（简化处理，显示昵称首字符）
-            if (comment.getUserNickname() != null && !comment.getUserNickname().isEmpty()) {
-                String firstChar = comment.getUserNickname().substring(0, 1);
-                tvUserAvatar.setText(firstChar);
+            // 加载用户头像
+            String avatarUrl = ApiClient.getAvatarUrl(comment.getUserAvatar());
+            if (avatarUrl != null && !avatarUrl.isEmpty()) {
+                Glide.with(itemView.getContext())
+                        .load(avatarUrl)
+                        .circleCrop()
+                        .placeholder(android.R.drawable.ic_menu_gallery)
+                        .error(android.R.drawable.ic_menu_gallery)
+                        .into(ivUserAvatar);
             } else {
-                tvUserAvatar.setText("?");
+                // 如果没有头像，清除图片显示
+                ivUserAvatar.setImageDrawable(null);
             }
 
             // 设置时间

@@ -13,13 +13,21 @@ import com.example.dresscode1.network.dto.LoginResponse;
 import com.example.dresscode1.network.dto.PostListResponse;
 import com.example.dresscode1.network.dto.RegisterRequest;
 import com.example.dresscode1.network.dto.RegisterResponse;
+import com.example.dresscode1.network.dto.UpdateUserRequest;
+import com.example.dresscode1.network.dto.ChangePasswordRequest;
+import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.UploadAvatarResponse;
 
+import okhttp3.MultipartBody;
 import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.GET;
 import retrofit2.http.Headers;
+import retrofit2.http.Multipart;
 import retrofit2.http.POST;
+import retrofit2.http.PUT;
+import retrofit2.http.Part;
 import retrofit2.http.Path;
 import retrofit2.http.Query;
 
@@ -105,5 +113,29 @@ public interface ApiService {
     @Headers("Content-Type: application/json")
     @POST("/api/posts")
     Call<CreatePostResponse> createPost(@Body CreatePostRequest request);
+
+    // 更新用户信息
+    @Headers("Content-Type: application/json")
+    @PUT("/api/user/{userId}")
+    Call<BaseResponse> updateUser(
+            @Path("userId") int userId,
+            @Body UpdateUserRequest request
+    );
+
+    // 修改密码
+    @Headers("Content-Type: application/json")
+    @PUT("/api/user/{userId}/password")
+    Call<BaseResponse> changePassword(
+            @Path("userId") int userId,
+            @Body ChangePasswordRequest request
+    );
+
+    // 上传头像
+    @Multipart
+    @POST("/api/user/{userId}/avatar")
+    Call<UploadAvatarResponse> uploadAvatar(
+            @Path("userId") int userId,
+            @Part MultipartBody.Part file
+    );
 }
 

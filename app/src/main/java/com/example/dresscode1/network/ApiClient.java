@@ -50,6 +50,21 @@ public class ApiClient {
         return BASE_URL + "static/images/" + imagePath;
     }
 
+    public static String getAvatarUrl(String avatarPath) {
+        if (avatarPath == null || avatarPath.isEmpty()) {
+            return null;
+        }
+        // 如果已经是完整URL，直接返回
+        if (avatarPath.startsWith("http://") || avatarPath.startsWith("https://")) {
+            return avatarPath;
+        }
+        // 如果是相对路径，拼接BASE_URL
+        if (avatarPath.startsWith("/")) {
+            return BASE_URL.substring(0, BASE_URL.length() - 1) + avatarPath;
+        }
+        return BASE_URL + "static/avatars/" + avatarPath;
+    }
+
     private ApiClient() {
         // no-op
     }
