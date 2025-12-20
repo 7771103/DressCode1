@@ -1,0 +1,164 @@
+package com.example.dresscode1.adapter;
+
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.RecyclerView;
+
+import com.bumptech.glide.Glide;
+import com.example.dresscode1.R;
+import com.example.dresscode1.network.ApiClient;
+import com.example.dresscode1.network.dto.Post;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder> {
+
+    private List<Post> posts = new ArrayList<>();
+    private OnPostActionListener listener;
+    private int currentUserId;
+
+    public interface OnPostActionListener {
+        void onLikeClick(Post post, int position);
+        void onCommentClick(Post post, int position);
+        void onCollectClick(Post post, int position);
+    }
+
+    public PostAdapter(OnPostActionListener listener, int currentUserId) {
+        this.listener = listener;
+        this.currentUserId = currentUserId;
+    }
+
+    public void setPosts(List<Post> posts) {
+        this.posts = posts != null ? posts : new ArrayList<>();
+        notifyDataSetChanged();
+    }
+
+    public void updatePost(int position, Post post) {
+        if (position >= 0 && position < posts.size()) {
+            posts.set(position, post);
+            notifyItemChanged(position);
+        }
+    }
+
+    @NonNull
+    @Override
+    public PostViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        View view = LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_post, parent, false);
+        return new PostViewHolder(view);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull PostViewHolder holder, int position) {
+        Post post = posts.get(position);
+        holder.bind(post);
+    }
+
+    @Override
+    public int getItemCount() {
+        return posts.size();
+    }
+
+    class PostViewHolder extends RecyclerView.ViewHolder {
+        private TextView tvUserNickname;
+        private TextView tvUserAvatar;
+        private TextView tvContent;
+        private ImageView ivPostImage;
+        private TextView tvLikeCount;
+        private TextView ivLike;
+        private TextView tvCommentCount;
+        private TextView tvCollectCount;
+        private TextView ivCollect;
+        private LinearLayout btnLike;
+        private LinearLayout btnComment;
+        private LinearLayout btnCollect;
+
+        public PostViewHolder(@NonNull View itemView) {
+            super(itemView);
+            tvUserNickname = itemView.findViewById(R.id.tvUserNickname);
+            tvUserAvatar = itemView.findViewById(R.id.tvUserAvatar);
+            tvContent = itemView.findViewById(R.id.tvContent);
+            ivPostImage = itemView.findViewById(R.id.ivPostImage);
+            tvLikeCount = itemView.findViewById(R.id.tvLikeCount);
+            ivLike = itemView.findViewById(R.id.ivLike);
+            tvCommentCount = itemView.findViewById(R.id.tvCommentCount);
+            tvCollectCount = itemView.findViewById(R.id.tvCollectCount);
+            ivCollect = itemView.findViewById(R.id.ivCollect);
+            btnLike = itemView.findViewById(R.id.btnLike);
+            btnComment = itemView.findViewById(R.id.btnComment);
+            btnCollect = itemView.findViewById(R.id.btnCollect);
+        }
+
+        public void bind(Post post) {
+            tvUserNickname.setText(post.getUserNickname() != null ? post.getUserNickname() : "未知用户");
+            
+            // 设置头像（简化处理，显示昵称首字符）
+            if (post.getUserNickname() != null && !post.getUserNickname().isEmpty()) {
+                String firstChar = post.getUserNickname().substring(0, 1);
+                tvUserAvatar.setText(firstChar);
+            } else {
+                tvUserAvatar.setText("?");
+            }
+
+            tvContent.setText(post.getContent() != null ? post.getContent() : "");
+            tvLikeCount.setText(String.valueOf(post.getLikeCount()));
+            tvCommentCount.setText(String.valueOf(post.getCommentCount()));
+            tvCollectCount.setText(String.valueOf(post.getCollectCount()));
+
+            // 设置点赞状态
+            if (post.isLiked()) {
+                ivLike.setText("❤️");
+                ivLike.setTextColor(itemView.getContext().getColor(R.color.error_red));
+            } else {
+                ivLike.setText("🤍");
+                ivLike.setTextColor(itemView.getContext().getColor(R.color.text_secondary));
+            }
+
+            // 设置收藏状态
+            if (post.isCollected()) {
+                ivCollect.setText("⭐");
+                ivCollect.setTextColor(itemView.getContext().getColor(R.color.warning_yellow));
+            } else {
+                ivCollect.setText("☆");
+                ivCollect.setTextColor(itemView.getContext().getColor(R.color.text_secondary));
+            }
+
+            // 加载图片
+            // 图片路径应该是: http://your-server/dataset/data/images/{imagePath}
+            // 简化处理：假设图片在服务器上的路径
+            String imageUrl = "http://10.134.17.29:5000/static/images/" + post.getImagePath();
+            Glide.with(itemView.getContext())
+                    .load(imageUrl)
+                    .placeholder(android.R.color.transparent)
+                    .error(android.R.color.transparent)
+                    .into(ivPostImage);
+
+            // 设置点击事件
+            btnLike.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onLikeClick(post, getAdapterPosition());
+                }
+            });
+
+            btnComment.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onCommentClick(post, getAdapterPosition());
+                }
+            });
+
+            btnCollect.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onCollectClick(post, getAdapterPosition());
+                }
+            });
+        }
+    }
+}
+

@@ -53,6 +53,12 @@ dependencies {
     implementation(libs.room.runtime)
     annotationProcessor(libs.room.compiler)
     
+    // Glide for image loading
+    implementation(libs.glide)
+    
+    // CircleImageView for circular avatars
+    implementation(libs.circleimageview)
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)

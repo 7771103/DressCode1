@@ -1,6 +1,7 @@
 package com.example.dresscode1.data.local.entity;
 
 import androidx.room.Entity;
+import androidx.room.Ignore;
 import androidx.room.PrimaryKey;
 
 @Entity(tableName = "users")
@@ -15,6 +16,7 @@ public class UserEntity {
     public UserEntity() {
     }
     
+    @Ignore
     public UserEntity(int id, String phone, String passwordHash, String nickname) {
         this.id = id;
         this.phone = phone;

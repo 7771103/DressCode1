@@ -17,6 +17,7 @@ import com.example.dresscode1.network.dto.LoginRequest;
 import com.example.dresscode1.network.dto.LoginResponse;
 import com.example.dresscode1.network.dto.RegisterRequest;
 import com.example.dresscode1.network.dto.RegisterResponse;
+import com.example.dresscode1.utils.UserPrefs;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -27,12 +28,14 @@ public class UserRepository {
     private final ApiService apiService;
     private final UserDao userDao;
     private final Handler mainHandler;
+    private final UserPrefs userPrefs;
     
     public UserRepository(Application application) {
         apiService = ApiClient.getService();
         DressCodeDatabase database = DressCodeDatabase.getDatabase(application);
         userDao = database.userDao();
         mainHandler = new Handler(Looper.getMainLooper());
+        userPrefs = new UserPrefs(application);
     }
     
     public LiveData<LoginResponse> login(String phone, String password) {
@@ -45,8 +48,12 @@ public class UserRepository {
                 if (response.isSuccessful() && response.body() != null) {
                     LoginResponse loginResponse = response.body();
                     if (loginResponse.isOk()) {
-                        // 登录成功，保存用户信息到本地数据库
+                        // 登录成功，保存用户信息到本地数据库和SharedPreferences
                         saveUserToLocal(phone, loginResponse.getUserId());
+                        userPrefs.saveUserId(loginResponse.getUserId());
+                        if (loginResponse.getNickname() != null) {
+                            userPrefs.saveUserNickname(loginResponse.getNickname());
+                        }
                     }
                     liveData.postValue(loginResponse);
                 } else {
@@ -79,8 +86,9 @@ public class UserRepository {
                 if (response.isSuccessful() && response.body() != null) {
                     RegisterResponse registerResponse = response.body();
                     if (registerResponse.isOk() && registerResponse.getUserId() != null) {
-                        // 注册成功，保存用户信息到本地数据库
+                        // 注册成功，保存用户信息到本地数据库和SharedPreferences
                         saveUserToLocal(phone, registerResponse.getUserId());
+                        userPrefs.saveUserId(registerResponse.getUserId());
                     }
                     liveData.postValue(registerResponse);
                 } else {

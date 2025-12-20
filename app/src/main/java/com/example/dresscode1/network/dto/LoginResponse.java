@@ -4,6 +4,7 @@ public class LoginResponse {
     private boolean ok;
     private String msg;
     private int userId;
+    private String nickname;
 
     public boolean isOk() {
         return ok;
@@ -17,6 +18,10 @@ public class LoginResponse {
         return userId;
     }
     
+    public String getNickname() {
+        return nickname;
+    }
+    
     public void setOk(boolean ok) {
         this.ok = ok;
     }
@@ -27,6 +32,10 @@ public class LoginResponse {
     
     public void setUserId(int userId) {
         this.userId = userId;
+    }
+    
+    public void setNickname(String nickname) {
+        this.nickname = nickname;
     }
 }
 
