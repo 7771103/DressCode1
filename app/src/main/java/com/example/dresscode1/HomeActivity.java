@@ -7,9 +7,14 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.ProgressBar;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -21,6 +26,7 @@ import androidx.cardview.widget.CardView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
+import androidx.constraintlayout.widget.ConstraintLayout;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
@@ -32,6 +38,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
 import com.example.dresscode1.adapter.PostAdapter;
+import com.example.dresscode1.adapter.MessageAdapter;
 import com.example.dresscode1.FollowListActivity;
 import com.example.dresscode1.network.ApiClient;
 import com.example.dresscode1.network.dto.Comment;
@@ -44,6 +51,9 @@ import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.PostListResponse;
+import com.example.dresscode1.network.dto.ChatMessage;
+import com.example.dresscode1.network.dto.ChatRequest;
+import com.example.dresscode1.network.dto.ChatResponse;
 
 import java.util.List;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
@@ -79,9 +89,15 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvTabProfile;
     private TextView tvTitle;
     private RecyclerView rvPosts;
-    private NestedScrollView svAgent;
+    private ConstraintLayout svAgent;
     private NestedScrollView svWardrobe;
     private NestedScrollView svProfile;
+    
+    // 对话相关视图
+    private RecyclerView rvChatMessages;
+    private TextInputEditText etChatMessage;
+    private ImageButton btnChatSend;
+    private ProgressBar progressChatBar;
     
     // 我的页面视图
     private CircleImageView ivAvatar;
@@ -101,10 +117,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     
     private PostAdapter postAdapter;
     private PostAdapter myPostAdapter;
+    private MessageAdapter messageAdapter;
     private UserPrefs userPrefs;
     private int currentUserId;
     private String currentTab = "home"; // home, agent, wardrobe, profile
     private String currentProfileTab = "posts"; // posts, likes, collections
+    private String conversationId; // 对话会话ID
     
     // 分页加载相关变量
     private static final int PAGE_SIZE = 10;
@@ -258,6 +276,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svWardrobe = findViewById(R.id.svWardrobe);
         svProfile = findViewById(R.id.svProfile);
         
+        // 对话相关视图
+        rvChatMessages = findViewById(R.id.rvChatMessages);
+        etChatMessage = findViewById(R.id.etChatMessage);
+        btnChatSend = findViewById(R.id.btnChatSend);
+        progressChatBar = findViewById(R.id.progressChatBar);
+        
         // 我的页面视图
         ivAvatar = findViewById(R.id.ivAvatar);
         tvNickname = findViewById(R.id.tvNickname);
@@ -312,6 +336,17 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         rvMyPosts.setLayoutManager(myPostsLayoutManager);
         rvMyPosts.setAdapter(myPostAdapter);
         
+        // 初始化对话相关
+        messageAdapter = new MessageAdapter();
+        LinearLayoutManager chatLayoutManager = new LinearLayoutManager(this);
+        chatLayoutManager.setStackFromEnd(true); // 从底部开始显示
+        rvChatMessages.setLayoutManager(chatLayoutManager);
+        rvChatMessages.setAdapter(messageAdapter);
+        
+        // 初始状态：发送按钮禁用
+        btnChatSend.setEnabled(false);
+        btnChatSend.setAlpha(0.5f);
+        
         // 添加滚动监听，实现分页加载
         rvMyPosts.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -347,6 +382,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabWardrobe.setOnClickListener(v -> switchToWardrobe());
         tabProfile.setOnClickListener(v -> switchToProfile());
         
+        // 对话相关操作
+        setupChatActions();
+        
         // 我的页面操作
         btnEditProfile.setOnClickListener(v -> openEditProfile());
         btnLogout.setOnClickListener(v -> showLogoutDialog());
@@ -365,6 +403,118 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             intent.putExtra(FollowListActivity.EXTRA_USER_ID, currentUserId);
             intent.putExtra(FollowListActivity.EXTRA_LIST_TYPE, "following");
             startActivity(intent);
+        });
+    }
+
+    private void setupChatActions() {
+        // 发送按钮点击事件
+        btnChatSend.setOnClickListener(v -> sendChatMessage());
+
+        // 输入框回车发送
+        etChatMessage.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEND || 
+                (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                sendChatMessage();
+                return true;
+            }
+            return false;
+        });
+
+        // 监听输入框内容变化，控制发送按钮状态
+        etChatMessage.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                boolean hasText = s != null && s.toString().trim().length() > 0;
+                btnChatSend.setEnabled(hasText);
+                btnChatSend.setAlpha(hasText ? 1.0f : 0.5f);
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+    }
+
+    private void sendWelcomeMessage() {
+        ChatMessage welcomeMessage = new ChatMessage("assistant", "你好！我是AI智能助手，有什么可以帮助你的吗？");
+        messageAdapter.addMessage(welcomeMessage);
+        scrollChatToBottom();
+    }
+
+    private void sendChatMessage() {
+        String messageText = etChatMessage.getText() != null ? etChatMessage.getText().toString().trim() : "";
+        if (messageText.isEmpty()) {
+            return;
+        }
+
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // 清空输入框
+        etChatMessage.setText("");
+
+        // 添加用户消息到列表
+        ChatMessage userMessage = new ChatMessage("user", messageText);
+        messageAdapter.addMessage(userMessage);
+        scrollChatToBottom();
+
+        // 显示加载状态
+        setChatLoading(true);
+
+        // 发送请求到后端
+        ChatRequest request = new ChatRequest(currentUserId, messageText, conversationId);
+        ApiClient.getService().sendChatMessage(request)
+                .enqueue(new Callback<ChatResponse>() {
+                    @Override
+                    public void onResponse(Call<ChatResponse> call, Response<ChatResponse> response) {
+                        setChatLoading(false);
+                        if (response.isSuccessful() && response.body() != null) {
+                            ChatResponse chatResponse = response.body();
+                            if (chatResponse.isOk() && chatResponse.getReply() != null) {
+                                // 保存会话ID
+                                if (chatResponse.getConversationId() != null) {
+                                    conversationId = chatResponse.getConversationId();
+                                }
+
+                                // 添加AI回复到列表
+                                ChatMessage assistantMessage = new ChatMessage("assistant", chatResponse.getReply());
+                                messageAdapter.addMessage(assistantMessage);
+                                scrollChatToBottom();
+                            } else {
+                                Toast.makeText(HomeActivity.this, 
+                                    chatResponse.getMsg() != null ? chatResponse.getMsg() : "获取回复失败", 
+                                    Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(HomeActivity.this, "网络请求失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<ChatResponse> call, Throwable t) {
+                        setChatLoading(false);
+                        Toast.makeText(HomeActivity.this, "发送失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private void setChatLoading(boolean loading) {
+        progressChatBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+        btnChatSend.setEnabled(!loading);
+        btnChatSend.setAlpha(loading ? 0.5f : 1.0f);
+    }
+
+    private void scrollChatToBottom() {
+        rvChatMessages.post(() -> {
+            if (messageAdapter.getItemCount() > 0) {
+                rvChatMessages.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
+            }
         });
     }
 
@@ -428,6 +578,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svAgent.setVisibility(View.VISIBLE);
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
+        
+        // 如果是第一次进入对话页面，显示欢迎消息
+        if (messageAdapter.getItemCount() == 0) {
+            sendWelcomeMessage();
+        }
     }
 
     private void switchToWardrobe() {

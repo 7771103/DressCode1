@@ -20,6 +20,8 @@ import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.network.dto.UserListResponse;
 import com.example.dresscode1.network.dto.UploadAvatarResponse;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
+import com.example.dresscode1.network.dto.ChatRequest;
+import com.example.dresscode1.network.dto.ChatResponse;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
@@ -175,5 +177,10 @@ public interface ApiService {
             @Query("page_size") int pageSize,
             @Query("current_user_id") Integer currentUserId
     );
+
+    // AI对话
+    @Headers("Content-Type: application/json")
+    @POST("/api/chat")
+    Call<ChatResponse> sendChatMessage(@Body ChatRequest request);
 }
 
