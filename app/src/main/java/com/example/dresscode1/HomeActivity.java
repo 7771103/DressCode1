@@ -6,6 +6,15 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.location.Location;
+import android.location.LocationManager;
+import android.location.LocationListener;
+import android.location.Geocoder;
+import android.location.Address;
+import java.util.List;
+import java.util.Locale;
 import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -45,6 +54,9 @@ import com.example.dresscode1.adapter.WardrobeItemAdapter;
 import com.example.dresscode1.adapter.UserPhotoAdapter;
 import com.example.dresscode1.FollowListActivity;
 import com.example.dresscode1.network.ApiClient;
+import com.example.dresscode1.network.WeatherApiClient;
+import com.example.dresscode1.network.WeatherApiService;
+import com.example.dresscode1.network.dto.WeatherResponse;
 import com.example.dresscode1.network.dto.Comment;
 import com.example.dresscode1.network.dto.CommentListResponse;
 import com.example.dresscode1.network.dto.CommentRequest;
@@ -84,6 +96,7 @@ import de.hdodenhof.circleimageview.CircleImageView;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
 import okhttp3.RequestBody;
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -105,6 +118,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvTitle;
     private TextView tabHomeRecommend;
     private TextView tabHomeFollowing;
+    // 天气相关视图
+    private LinearLayout llWeather;
+    private ImageView ivWeatherIcon;
+    private TextView tvWeatherTemp;
+    private TextView tvWeatherText;
     private RecyclerView rvPosts;
     private ConstraintLayout svAgent;
     private ConstraintLayout svWardrobe;
@@ -215,6 +233,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 检查是否从帖子详情页跳转过来
         handleTryOnIntent();
+        
+        // 初始化天气功能
+        initWeather();
     }
     
     private void setupImagePicker() {
@@ -691,6 +712,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvTitle = findViewById(R.id.tvTitle);
         tabHomeRecommend = findViewById(R.id.tabHomeRecommend);
         tabHomeFollowing = findViewById(R.id.tabHomeFollowing);
+        // 天气相关视图
+        llWeather = findViewById(R.id.llWeather);
+        ivWeatherIcon = findViewById(R.id.ivWeatherIcon);
+        tvWeatherTemp = findViewById(R.id.tvWeatherTemp);
+        tvWeatherText = findViewById(R.id.tvWeatherText);
         rvPosts = findViewById(R.id.rvPosts);
         svAgent = findViewById(R.id.svAgent);
         svWardrobe = findViewById(R.id.svWardrobe);
@@ -2320,5 +2346,240 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         Toast.makeText(HomeActivity.this, "评论失败", Toast.LENGTH_SHORT).show();
                     }
                 });
+    }
+
+    // ==================== 天气相关功能 ====================
+    
+    private Handler weatherHandler;
+    private Runnable weatherUpdateRunnable;
+    private static final long WEATHER_UPDATE_INTERVAL = 30 * 60 * 1000; // 30分钟更新一次
+    private LocationManager locationManager;
+    private LocationListener locationListener;
+    private ActivityResultLauncher<String> locationPermissionLauncher;
+
+    private void initWeather() {
+        // 初始化Handler
+        weatherHandler = new Handler(Looper.getMainLooper());
+        
+        // 注册位置权限请求
+        locationPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                isGranted -> {
+                    if (isGranted) {
+                        getCurrentLocationAndWeather();
+                    } else {
+                        // 如果没有位置权限，使用默认城市（北京）
+                        fetchWeather("101010100"); // 北京城市ID
+                    }
+                }
+        );
+        
+        // 检查位置权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                == PackageManager.PERMISSION_GRANTED) {
+            getCurrentLocationAndWeather();
+        } else {
+            // 请求位置权限
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        
+        // 设置定时更新天气
+        weatherUpdateRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (ContextCompat.checkSelfPermission(HomeActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                        == PackageManager.PERMISSION_GRANTED) {
+                    getCurrentLocationAndWeather();
+                } else {
+                    fetchWeather("101010100"); // 默认北京
+                }
+                weatherHandler.postDelayed(this, WEATHER_UPDATE_INTERVAL);
+            }
+        };
+        weatherHandler.postDelayed(weatherUpdateRunnable, WEATHER_UPDATE_INTERVAL);
+    }
+
+    private void getCurrentLocationAndWeather() {
+        try {
+            locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            
+            if (locationManager == null) {
+                fetchWeather("101010100"); // 默认北京
+                return;
+            }
+            
+            // 检查GPS和网络定位是否可用
+            boolean isGPSEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            boolean isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+            
+            if (!isGPSEnabled && !isNetworkEnabled) {
+                // 如果定位服务不可用，使用默认城市
+                fetchWeather("101010100"); // 默认北京
+                return;
+            }
+            
+            locationListener = new LocationListener() {
+                @Override
+                public void onLocationChanged(@NonNull Location location) {
+                    double latitude = location.getLatitude();
+                    double longitude = location.getLongitude();
+                    // 使用经纬度获取天气
+                    fetchWeatherByLocation(latitude, longitude);
+                    // 移除位置监听，避免频繁更新
+                    if (locationManager != null && locationListener != null) {
+                        locationManager.removeUpdates(locationListener);
+                    }
+                }
+                
+                @Override
+                public void onStatusChanged(String provider, int status, Bundle extras) {}
+                
+                @Override
+                public void onProviderEnabled(@NonNull String provider) {}
+                
+                @Override
+                public void onProviderDisabled(@NonNull String provider) {}
+            };
+            
+            // 优先使用网络定位（更快）
+            if (isNetworkEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    == PackageManager.PERMISSION_GRANTED) {
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0, 0, locationListener);
+            } else if (isGPSEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    == PackageManager.PERMISSION_GRANTED) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, locationListener);
+            } else {
+                fetchWeather("101010100"); // 默认北京
+            }
+            
+            // 尝试获取最后一次已知位置
+            Location lastKnownLocation = null;
+            if (isNetworkEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    == PackageManager.PERMISSION_GRANTED) {
+                lastKnownLocation = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            }
+            if (lastKnownLocation == null && isGPSEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    == PackageManager.PERMISSION_GRANTED) {
+                lastKnownLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            }
+            
+            if (lastKnownLocation != null) {
+                fetchWeatherByLocation(lastKnownLocation.getLatitude(), lastKnownLocation.getLongitude());
+            }
+            
+        } catch (Exception e) {
+            Log.e("HomeActivity", "获取位置失败", e);
+            fetchWeather("101010100"); // 默认北京
+        }
+    }
+
+    private void fetchWeatherByLocation(double latitude, double longitude) {
+        // 使用经纬度格式：纬度,经度
+        String location = String.format(Locale.US, "%.2f,%.2f", latitude, longitude);
+        fetchWeather(location);
+    }
+
+    private void fetchWeather(String location) {
+        WeatherApiService weatherService = WeatherApiClient.getService();
+        String apiKey = WeatherApiClient.getApiKey();
+        
+        weatherService.getNowWeather(location, apiKey)
+                .enqueue(new Callback<WeatherResponse>() {
+                    @Override
+                    public void onResponse(Call<WeatherResponse> call, Response<WeatherResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            WeatherResponse weatherResponse = response.body();
+                            if ("200".equals(weatherResponse.getCode()) && weatherResponse.getNow() != null) {
+                                updateWeatherUI(weatherResponse.getNow());
+                            } else {
+                                Log.e("HomeActivity", "天气API返回错误: " + weatherResponse.getCode());
+                                tvWeatherTemp.setText("--°");
+                                tvWeatherText.setText("获取失败");
+                            }
+                        } else {
+                            String errorBody = "";
+                            try {
+                                if (response.errorBody() != null) {
+                                    errorBody = response.errorBody().string();
+                                }
+                            } catch (Exception e) {
+                                Log.e("HomeActivity", "读取错误响应失败", e);
+                            }
+                            Log.e("HomeActivity", "天气API请求失败 - 状态码: " + response.code() + ", 错误信息: " + errorBody);
+                            Log.e("HomeActivity", "请求URL: " + call.request().url());
+                            
+                            // 特别处理 403 Invalid Host 错误
+                            if (response.code() == 403 && errorBody.contains("Invalid Host")) {
+                                Log.e("HomeActivity", "⚠️ 错误：必须使用专属 API Host！");
+                                Log.e("HomeActivity", "请登录 https://console.qweather.com -> 设置 -> 查看专属 API Host");
+                                Log.e("HomeActivity", "然后在 WeatherApiClient.java 中替换 BASE_URL");
+                                tvWeatherTemp.setText("--°");
+                                tvWeatherText.setText("需配置API");
+                            } else {
+                                tvWeatherTemp.setText("--°");
+                                tvWeatherText.setText("获取失败");
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<WeatherResponse> call, Throwable t) {
+                        Log.e("HomeActivity", "天气API请求异常", t);
+                        tvWeatherTemp.setText("--°");
+                        tvWeatherText.setText("网络错误");
+                    }
+                });
+    }
+
+    private void updateWeatherUI(WeatherResponse.Now now) {
+        if (now == null) {
+            return;
+        }
+        
+        // 更新温度
+        String temp = now.getTemp();
+        if (temp != null && !temp.isEmpty()) {
+            tvWeatherTemp.setText(temp + "°");
+        } else {
+            tvWeatherTemp.setText("--°");
+        }
+        
+        // 更新天气描述
+        String text = now.getText();
+        if (text != null && !text.isEmpty()) {
+            tvWeatherText.setText(text);
+        } else {
+            tvWeatherText.setText("--");
+        }
+        
+        // 可以根据天气图标代码设置图标（这里简化处理，使用默认图标）
+        // 实际可以使用Glide加载和风天气的图标URL
+        String icon = now.getIcon();
+        if (icon != null && !icon.isEmpty()) {
+            // 和风天气图标URL格式：https://cdn.heweather.com/cond_icon/{icon}.png
+            String iconUrl = "https://cdn.heweather.com/cond_icon/" + icon + ".png";
+            Glide.with(this)
+                    .load(iconUrl)
+                    .placeholder(android.R.drawable.ic_menu_view)
+                    .error(android.R.drawable.ic_menu_view)
+                    .into(ivWeatherIcon);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // 停止天气更新
+        if (weatherHandler != null && weatherUpdateRunnable != null) {
+            weatherHandler.removeCallbacks(weatherUpdateRunnable);
+        }
+        // 移除位置监听
+        if (locationManager != null && locationListener != null) {
+            try {
+                locationManager.removeUpdates(locationListener);
+            } catch (SecurityException e) {
+                Log.e("HomeActivity", "移除位置监听失败", e);
+            }
+        }
     }
 }

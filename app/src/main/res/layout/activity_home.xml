@@ -31,6 +31,45 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvTitle">
 
+        <!-- 天气显示 -->
+        <LinearLayout
+            android:id="@+id/llWeather"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="6dp"
+            android:paddingHorizontal="12dp"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackground">
+
+            <ImageView
+                android:id="@+id/ivWeatherIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@android:drawable/ic_menu_view"
+                android:contentDescription="天气图标"
+                android:layout_marginEnd="4dp" />
+
+            <TextView
+                android:id="@+id/tvWeatherTemp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--°"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary_dark"
+                android:layout_marginEnd="4dp" />
+
+            <TextView
+                android:id="@+id/tvWeatherText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="加载中..."
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tabHomeFollowing"
             android:layout_width="wrap_content"
