@@ -72,31 +72,3 @@ obj/
 *.swp
 *.swo
 *.orig
-
-# Python 相关
-__pycache__/
-*.py[cod]
-*$py.class
-.Python
-
-# 虚拟环境（所有常见变体）
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-.venv/
-.virtualenv/
-virtualenv/
-.ENV/
-*.egg-info/
-dist/
-build/
-
-# 用户上传的图片和文件（运行时生成，不应提交到Git）
-backend/uploads/
-**/uploads/
-*.jpg
-*.png
-# 日志目录
-logs/

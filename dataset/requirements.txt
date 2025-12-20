@@ -1,8 +1,0 @@
-beautifulsoup4>=4.12.3
-dashscope>=1.14.1
-requests>=2.32.3
-tqdm>=4.66.5
-pillow>=10.4.0
-pandas>=2.2.3
-python-dotenv>=1.0.1
-

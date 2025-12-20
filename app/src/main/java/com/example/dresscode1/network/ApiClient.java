@@ -39,10 +39,6 @@ public class ApiClient {
         return service;
     }
 
-    public static String getBaseUrl() {
-        return BASE_URL;
-    }
-
     private ApiClient() {
         // no-op
     }
