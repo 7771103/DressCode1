@@ -62,6 +62,15 @@ public interface ApiService {
             @Query("current_user_id") Integer currentUserId
     );
 
+    // 获取关注用户的帖子列表
+    @GET("/api/posts/following")
+    Call<PostListResponse> getFollowingPosts(
+            @Query("user_id") int userId,
+            @Query("page") int page,
+            @Query("page_size") int pageSize,
+            @Query("current_user_id") Integer currentUserId
+    );
+
     // 获取我的帖子列表
     @GET("/api/posts/my")
     Call<PostListResponse> getMyPosts(

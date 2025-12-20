@@ -310,6 +310,79 @@ def create_app():
             }
         ), 200
 
+    # 获取关注用户的帖子列表
+    @app.route("/api/posts/following", methods=["GET"])
+    def get_following_posts():
+        page = request.args.get("page", 1, type=int)
+        page_size = request.args.get("page_size", 20, type=int)
+        user_id = request.args.get("user_id", type=int)
+        if not user_id:
+            return jsonify({"ok": False, "msg": "需要登录"}), 401
+
+        # 找到当前用户关注的用户ID列表
+        following_records = Follow.query.filter_by(follower_id=user_id).all()
+        following_ids = [f.following_id for f in following_records]
+
+        if not following_ids:
+            return jsonify(
+                {"ok": True, "data": [], "page": page, "pageSize": page_size, "total": 0}
+            ), 200
+
+        query = Post.query.filter(Post.user_id.in_(following_ids))
+        now = datetime.utcnow()
+        query = query.filter(Post.created_at <= now)
+        query = query.order_by(
+            Post.created_at.desc(), (Post.like_count + Post.collect_count * 2).desc()
+        )
+
+        posts = query.paginate(page=page, per_page=page_size, error_out=False)
+        current_user_id = request.args.get("current_user_id", type=int) or user_id
+
+        result = []
+        for post in posts.items:
+            user = User.query.get(post.user_id)
+            is_liked = (
+                Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
+                is not None
+                if current_user_id
+                else False
+            )
+            is_collected = (
+                Collection.query.filter_by(
+                    user_id=current_user_id, post_id=post.id
+                ).first()
+                is not None
+                if current_user_id
+                else False
+            )
+
+            result.append(
+                {
+                    "id": post.id,
+                    "userId": post.user_id,
+                    "userNickname": user.nickname if user else "未知用户",
+                    "userAvatar": user.avatar if user else None,
+                    "imagePath": post.image_path,
+                    "content": post.content or "",
+                    "likeCount": post.like_count,
+                    "commentCount": post.comment_count,
+                    "collectCount": post.collect_count,
+                    "isLiked": is_liked,
+                    "isCollected": is_collected,
+                    "createdAt": format_utc_time(post.created_at),
+                }
+            )
+
+        return jsonify(
+            {
+                "ok": True,
+                "data": result,
+                "page": page,
+                "pageSize": page_size,
+                "total": posts.total,
+            }
+        ), 200
+
     # 获取我的帖子列表
     @app.route("/api/posts/my", methods=["GET"])
     def get_my_posts():

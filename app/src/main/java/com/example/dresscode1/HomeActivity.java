@@ -103,6 +103,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvTabWardrobe;
     private TextView tvTabProfile;
     private TextView tvTitle;
+    private TextView tabHomeRecommend;
+    private TextView tabHomeFollowing;
     private RecyclerView rvPosts;
     private ConstraintLayout svAgent;
     private ConstraintLayout svWardrobe;
@@ -161,6 +163,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private UserPrefs userPrefs;
     private int currentUserId;
     private String currentTab = "home"; // home, agent, wardrobe, profile
+    private String currentHomeFeedTab = "recommend"; // recommend, follow
     private String currentProfileTab = "posts"; // posts, likes, collections
     private String conversationId; // 对话会话ID
     
@@ -207,7 +210,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         setupImagePicker();
         setupDialogImagePicker();
         setupWardrobeImagePicker();
-        loadPosts();
+        refreshHomeFeed();
         loadUserPhotos();
         
         // 检查是否从帖子详情页跳转过来
@@ -662,7 +665,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         // 刷新用户信息
                         loadUserInfo();
                         // 刷新帖子列表，确保头像更新
-                        loadPosts();
+                        refreshHomeFeed();
                         // 如果当前在"我的"页面，也刷新我的帖子列表
                         if (currentTab.equals("profile")) {
                             switchProfileTab(currentProfileTab);
@@ -686,6 +689,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvTabWardrobe = findViewById(R.id.tvTabWardrobe);
         tvTabProfile = findViewById(R.id.tvTabProfile);
         tvTitle = findViewById(R.id.tvTitle);
+        tabHomeRecommend = findViewById(R.id.tabHomeRecommend);
+        tabHomeFollowing = findViewById(R.id.tabHomeFollowing);
         rvPosts = findViewById(R.id.rvPosts);
         svAgent = findViewById(R.id.svAgent);
         svWardrobe = findViewById(R.id.svWardrobe);
@@ -788,6 +793,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvTabProfile.setTextColor(getColor(R.color.text_tertiary));
 
         tvTitle.setText("首页");
+        updateHomeFeedTabStyle();
         
         // 设置 RecyclerView
         postAdapter = new PostAdapter(this, currentUserId);
@@ -844,6 +850,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabAgent.setOnClickListener(v -> switchToAgent());
         tabWardrobe.setOnClickListener(v -> switchToWardrobe());
         tabProfile.setOnClickListener(v -> switchToProfile());
+        tabHomeRecommend.setOnClickListener(v -> switchHomeFeedTab("recommend"));
+        tabHomeFollowing.setOnClickListener(v -> switchHomeFeedTab("follow"));
         
         // 对话相关操作
         setupChatActions();
@@ -1014,7 +1022,39 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
         
-        loadPosts();
+        refreshHomeFeed();
+    }
+
+    private void switchHomeFeedTab(String tab) {
+        if ("follow".equals(tab) && currentUserId <= 0) {
+            Toast.makeText(this, "请先登录后查看关注内容", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (tab.equals(currentHomeFeedTab)) {
+            return;
+        }
+        currentHomeFeedTab = tab;
+        updateHomeFeedTabStyle();
+        refreshHomeFeed();
+    }
+
+    private void updateHomeFeedTabStyle() {
+        if (tabHomeRecommend == null || tabHomeFollowing == null) {
+            return;
+        }
+        int selectedColor = getColor(R.color.primary_blue_gray);
+        int unselectedColor = getColor(R.color.text_secondary);
+        
+        tabHomeRecommend.setTextColor(currentHomeFeedTab.equals("recommend") ? selectedColor : unselectedColor);
+        tabHomeFollowing.setTextColor(currentHomeFeedTab.equals("follow") ? selectedColor : unselectedColor);
+    }
+
+    private void refreshHomeFeed() {
+        if ("follow".equals(currentHomeFeedTab)) {
+            loadFollowingPosts();
+        } else {
+            loadPosts();
+        }
     }
 
     private void switchToAgent() {
@@ -1899,7 +1939,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 Toast.makeText(HomeActivity.this, "发帖成功", Toast.LENGTH_SHORT).show();
                                 // 刷新用户信息和帖子列表
                                 loadUserInfo();
-                                loadPosts(); // 刷新首页帖子列表
+                                refreshHomeFeed(); // 刷新首页帖子列表
                                 // 如果当前在"我的"页面，切换到"我的帖子"标签并刷新
                                 if (currentTab.equals("profile")) {
                                     switchProfileTab("posts");
@@ -1943,6 +1983,35 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();
+    }
+
+    private void loadFollowingPosts() {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录后查看关注内容", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ApiClient.getService().getFollowingPosts(currentUserId, 1, 20, currentUserId)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                postAdapter.setPosts(postListResponse.getData());
+                            } else {
+                                postAdapter.setPosts(null);
+                            }
+                        } else {
+                            Toast.makeText(HomeActivity.this, "加载失败，请稍后重试", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     private void loadPosts() {
@@ -2238,7 +2307,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 Toast.makeText(HomeActivity.this, "评论成功", Toast.LENGTH_SHORT).show();
                                 // 刷新帖子列表
                                 if (currentTab.equals("home")) {
-                                    loadPosts();
+                                    refreshHomeFeed();
                                 } else if (currentTab.equals("profile")) {
                                     loadMyPosts();
                                 }
