@@ -296,8 +296,9 @@
                         <ImageView
                             android:id="@+id/ivResultPhoto"
                             android:layout_width="match_parent"
-                            android:layout_height="300dp"
-                            android:scaleType="centerCrop"
+                            android:layout_height="wrap_content"
+                            android:scaleType="fitCenter"
+                            android:adjustViewBounds="true"
                             android:background="@color/bg_light"
                             android:contentDescription="合成结果" />
 

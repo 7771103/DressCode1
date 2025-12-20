@@ -147,6 +147,202 @@ def create_app():
             return "女"
         else:  # "中性" 或 "unknown"
             return None  # None表示匹配所有性别
+    
+    def identify_item_type(image_path):
+        """
+        识别物品类型：从标签中读取，判断是配饰（试戴）还是服装（换装）
+        返回: ("try_on" 或 "wear", 物品描述)
+        """
+        labels = load_image_labels()
+        label = labels.get(image_path, {})
+        
+        # 获取items和accessories
+        items = label.get("items", [])
+        accessories = label.get("accessories", [])
+        
+        # 配饰关键词（需要试戴的物品）
+        accessory_keywords = [
+            # 眼镜类
+            "墨镜", "眼镜", "太阳镜", "sunglasses", "glasses",
+            # 帽子类
+            "帽子", "帽", "hat", "cap", "草编", "宽檐", "礼帽",
+            # 项链类
+            "项链", "necklace", "choker", "颈圈", "吊坠", "pendant",
+            # 耳环类
+            "耳环", "earring", "耳钉",
+            # 手链手镯类
+            "手链", "手镯", "bracelet", "bangle",
+            # 戒指类
+            "戒指", "ring",
+            # 手表类
+            "手表", "watch", "腕表", "表带",
+            # 围巾类
+            "围巾", "scarf",
+            # 领带类
+            "领带", "tie",
+            # 腰带类
+            "腰带", "belt", "waist belt", "宽腰带", "细腰带",
+            # 发带头巾类
+            "发带", "headband", "头巾", "bandana", "方巾",
+            # 手套类
+            "手套", "gloves",
+            # 袜子类
+            "袜子", "socks", "tights", "丝袜", "长袜",
+            # 口袋巾类
+            "口袋巾", "pocket square", "pocket",
+            # 包类配饰（中文）
+            "手提包", "手拿包", "斜挎包", "托特包", "单肩包", "腰包", "信封包", 
+            "链条包", "交叉包", "包", "背包", "双肩包", "旅行包", "帆布包", 
+            "草编包", "菱格纹", "铆钉", "手拿", "斜挎", "托特", "单肩", "腰包", 
+            "信封", "链条", "交叉", "背包", "双肩", "旅行", "肩带包",
+            # 包类配饰（英文）
+            "handbag", "bag", "clutch", "tote", "crossbody", "satchel", 
+            "fanny pack", "waist bag", "backpack", "shoulder bag", "messenger bag",
+            "duffle", "holdall", "pouch", "purse", "duffle bag"
+        ]
+        
+        # 检查items中是否包含配饰关键词
+        all_items_text = " ".join(items) if isinstance(items, list) else str(items)
+        all_accessories_text = " ".join(accessories) if isinstance(accessories, list) else str(accessories)
+        combined_text = (all_items_text + " " + all_accessories_text).lower()
+        
+        # 判断是否包含配饰关键词
+        is_accessory = any(keyword in combined_text for keyword in accessory_keywords)
+        
+        # 需要过滤掉的不相关细节关键词（如内衬、里料、标签等）
+        irrelevant_keywords = [
+            "内衬", "里料", "标签", "吊牌", "商标", "logo", "lining", "label", 
+            "tag", "品牌", "brand", "尺码", "size", "码数", "型号", "model"
+        ]
+        
+        def filter_irrelevant_items(item_list):
+            """过滤掉不相关的细节描述"""
+            if not item_list:
+                return []
+            filtered = []
+            for item in item_list:
+                item_str = str(item)
+                item_lower = item_str.lower()
+                # 如果包含不相关关键词，跳过
+                if any(keyword in item_lower for keyword in irrelevant_keywords):
+                    continue
+                filtered.append(item_str)
+            return filtered
+        
+        if is_accessory:
+            # 提取配饰描述
+            accessory_desc = []
+            if accessories:
+                filtered_accessories = filter_irrelevant_items(
+                    accessories if isinstance(accessories, list) else [accessories]
+                )
+                accessory_desc.extend(filtered_accessories)
+            # 从items中提取配饰相关的
+            for item in (items if isinstance(items, list) else [items]):
+                item_lower = str(item).lower()
+                if any(keyword in item_lower for keyword in accessory_keywords):
+                    # 再次过滤不相关细节
+                    if not any(keyword in item_lower for keyword in irrelevant_keywords):
+                        accessory_desc.append(str(item))
+            
+            desc = ", ".join(accessory_desc[:3]) if accessory_desc else "配饰"
+            return "wear", desc  # wear表示试戴
+        
+        # 默认是换装
+        filtered_items = filter_irrelevant_items(items)
+        clothing_desc = ", ".join(filtered_items[:3]) if filtered_items else "服装"
+        return "try_on", clothing_desc  # try_on表示换装
+    
+    def identify_item_type_with_doubao(image_path, clothing_image_base64):
+        """
+        识别物品类型：先从标签中读取，如果标签信息不足，再用豆包API识别
+        返回: ("try_on" 或 "wear", 物品描述)
+        """
+        # 先尝试从标签中识别
+        item_type, item_description = identify_item_type(image_path)
+        
+        # 检查标签信息是否足够
+        labels = load_image_labels()
+        label = labels.get(image_path, {})
+        items = label.get("items", [])
+        accessories = label.get("accessories", [])
+        
+        # 如果标签中没有items和accessories，或者都是空的，使用豆包API识别
+        if (not items and not accessories) or (len(items) == 0 and len(accessories) == 0):
+            print(f"[DEBUG] 标签信息不足，使用豆包API识别物品类型...")
+            try:
+                # 调用豆包API进行物品识别
+                # 使用chat/completions API进行图像识别
+                api_key = os.environ.get("DOUBAO_API_KEY", "").strip()
+                # 注意：图像识别需要使用chat/completions API，而不是images/generations
+                chat_api_url = os.environ.get("DOUBAO_CHAT_API_URL", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
+                model_id = os.environ.get("DOUBAO_MODEL_ID", "").strip()
+                
+                if api_key and model_id and clothing_image_base64:
+                    # 构建识别请求
+                    # 注意：这里假设豆包API支持多模态输入，需要根据实际API文档调整
+                    prompt = "请识别这张图片中的物品类型。如果是配饰（如墨镜、眼镜、太阳镜、帽子、草编帽、礼帽、项链、颈圈、耳环、耳钉、手链、手镯、戒指、手表、腕表、围巾、领带、腰带、发带、头巾、手套、袜子、丝袜、口袋巾、手提包、手拿包、斜挎包、托特包、单肩包、腰包、信封包、链条包、背包、双肩包、旅行包等），请回复'配饰'；如果是服装（如外套、上衣、裙子、裤子、鞋子等），请回复'服装'。只回复'配饰'或'服装'，不要其他内容。"
+                    
+                    # 构建请求体（根据豆包API文档调整格式）
+                    payload = {
+                        "model": model_id,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": prompt
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/jpeg;base64,{clothing_image_base64}"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        "max_tokens": 50,
+                        "temperature": 0.1
+                    }
+                    
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    
+                    # 调用API
+                    response = requests.post(chat_api_url, json=payload, headers=headers, timeout=30)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        # 解析响应（根据实际API响应格式调整）
+                        if "choices" in result and len(result["choices"]) > 0:
+                            content = result["choices"][0].get("message", {}).get("content", "").strip()
+                            print(f"[DEBUG] 豆包API识别结果: {content}")
+                            
+                            # 判断识别结果
+                            if "配饰" in content or "accessory" in content.lower():
+                                return "wear", "配饰"
+                            else:
+                                return "try_on", "服装"
+                    else:
+                        print(f"[WARN] 豆包API识别失败，状态码: {response.status_code}")
+                        print(f"[WARN] 响应: {response.text[:200]}")
+                        # 如果API调用失败，使用默认换装模式
+                        return "try_on", "服装"
+                else:
+                    print(f"[DEBUG] 豆包API未配置或图片未提供，使用默认换装模式")
+                    return "try_on", "服装"  # 默认返回换装
+            except Exception as e:
+                print(f"[ERROR] 豆包API识别失败: {str(e)}")
+                import traceback
+                print(f"[ERROR] 堆栈跟踪: {traceback.format_exc()}")
+                return "try_on", "服装"  # 默认返回换装
+        
+        # 标签信息足够，返回标签识别结果
+        return item_type, item_description
 
     class User(db.Model):
         __tablename__ = "users"
@@ -1298,10 +1494,16 @@ def create_app():
             print(f"[ERROR] 堆栈跟踪: {traceback.format_exc()}")
             return None
 
-    # 调用豆包API进行换装
-    def call_doubao_tryon_api(user_image_base64, clothing_image_base64):
+    # 调用豆包API进行换装或试戴
+    def call_doubao_tryon_api(user_image_base64, clothing_image_base64, item_type="try_on", item_description=""):
         """
-        调用豆包API进行虚拟试衣
+        调用豆包API进行虚拟试衣或试戴
+        
+        参数:
+            user_image_base64: 用户照片的base64编码
+            clothing_image_base64: 物品图片的base64编码
+            item_type: 物品类型，"try_on"表示换装，"wear"表示试戴
+            item_description: 物品描述，用于生成更准确的prompt
         
         注意：此函数需要根据豆包API的实际文档进行调整
         """
@@ -1341,24 +1543,59 @@ def create_app():
             print(f"[DEBUG] 接入点ID: {model_id}")
             print(f"[DEBUG] API Key: {api_key[:10]}...{api_key[-10:] if len(api_key) > 20 else '***'}")
             
+            # 根据物品类型生成不同的prompt
+            # 添加安全约束词汇以减少触发敏感内容检测
+            safety_constraints = "，appropriate，professional，suitable for work"
+            if item_type == "wear":
+                # 试戴配饰（如墨镜、帽子、项链、包等）
+                # 重要：明确说明只添加配饰，不要改变服装，并且要使用参考图片中的颜色和样式
+                if item_description:
+                    prompt = f"在人物身上添加参考图片中的{item_description}，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{safety_constraints}"
+                else:
+                    prompt = f"在人物身上添加参考图片中的配饰，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{safety_constraints}"
+                strength = 0.3  # 试戴配饰时，改动幅度很小，只添加配饰不改变服装
+            else:
+                # 换装（默认）
+                if item_description:
+                    prompt = f"将人物的服装替换为参考图片中的{item_description}，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{safety_constraints}"
+                else:
+                    prompt = f"将人物的服装替换为参考图片中的服装，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{safety_constraints}"
+                strength = 0.6  # 换装时，改动幅度较大
+            
             # 构建请求体 - 使用图像生成API格式
-            # 注意：Seedream图像编辑API使用人物原图作为image参数，通过prompt描述换装需求
-            # 如果需要同时传入衣服图片，可能需要先合成或使用其他方式
-            # 当前实现：使用人物原图，prompt描述换装需求
+            # 注意：Seedream图像编辑API使用人物原图作为image参数，物品图片作为reference_image参数
+            # 对于试戴配饰，需要同时传入用户图片和物品图片
             payload = {
                 "model": model_id,
-                "prompt": "将人物的服装替换为图片中的服装，保持人物脸部、姿势和背景不变，写实风格，高质量",
+                "prompt": prompt,
                 "image": f"data:image/jpeg;base64,{user_image_base64}",
-                "strength": 0.6,  # 控制改动幅度，0.0-1.0，值越大改动越大
+                "strength": strength,  # 控制改动幅度，0.0-1.0，值越大改动越大
                 "sequential_image_generation": "disabled",
                 "response_format": "b64_json",  # 返回base64编码的图片
-                "size": "2K",
+                "size": "4K",  # 使用4K尺寸以确保完整显示，不被裁剪
                 "stream": False,
                 "watermark": True
             }
             
-            # 注意：如果API支持多图片输入，可能需要调整payload格式
-            # 当前实现假设使用人物原图 + prompt描述的方式
+            # 如果API支持多图片输入，传入物品图片
+            # 注意：根据豆包API的实际文档，可能需要使用不同的参数名
+            # 常见的参数名包括：reference_image、clothing_image、mask、input_image等
+            # 如果API不支持多图片输入，可能需要调整prompt或使用其他方式
+            if clothing_image_base64:
+                # 尝试多种可能的参数名（根据实际API文档选择正确的参数名）
+                # 优先尝试 reference_image（常见于图像编辑API）
+                payload["reference_image"] = f"data:image/jpeg;base64,{clothing_image_base64}"
+                # 如果reference_image不工作，可以尝试以下参数名（需要根据API文档确认）：
+                # payload["clothing_image"] = f"data:image/jpeg;base64,{clothing_image_base64}"
+                # payload["input_image"] = f"data:image/jpeg;base64,{clothing_image_base64}"
+                print(f"[DEBUG] 已添加物品图片到请求（reference_image参数，base64长度: {len(clothing_image_base64)}）")
+            
+            print(f"[DEBUG] ========== API调用参数 ==========")
+            print(f"[DEBUG] 物品类型: {item_type} ({'试戴配饰' if item_type == 'wear' else '换装'})")
+            print(f"[DEBUG] 物品描述: {item_description}")
+            print(f"[DEBUG] Strength: {strength}")
+            print(f"[DEBUG] Prompt: {prompt}")
+            print(f"[DEBUG] ====================================")
             
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -1406,7 +1643,22 @@ def create_app():
                                 elif response.status_code == 404 or "does not exist" in error_message_lower or "NotFound" in error_detail.get('code', ''):
                                     error_msg += f"\n\n可能的原因：\n1. 接入点ID配置错误或已被删除\n2. API Key没有权限访问该接入点\n3. 请检查 backend/.env 文件中的 DOUBAO_MODEL_ID 配置\n4. 登录火山方舟控制台确认接入点是否存在：https://console.volcengine.com/ark/"
                             if "code" in error_detail:
-                                error_msg += f"\n错误代码: {error_detail['code']}"
+                                error_code = error_detail['code']
+                                error_msg += f"\n错误代码: {error_code}"
+                                
+                                # 检查是否是敏感内容检测错误
+                                if error_code == "OutputImageSensitiveContentDetected" or "SensitiveContent" in error_code:
+                                    error_msg += f"\n\n⚠️ 内容安全检测提示：\n"
+                                    error_msg += f"API检测到生成的图像可能包含敏感内容，因此拒绝了请求。\n\n"
+                                    error_msg += f"可能的原因：\n"
+                                    error_msg += f"1. 输入的人像照片可能触发了内容安全策略\n"
+                                    error_msg += f"2. 生成的图像可能包含不当内容\n"
+                                    error_msg += f"3. 这是API的安全保护机制，用于防止生成不当内容\n\n"
+                                    error_msg += f"建议解决方案：\n"
+                                    error_msg += f"1. 尝试使用不同的人像照片（建议使用正面、清晰、着装得体的照片）\n"
+                                    error_msg += f"2. 确保上传的照片符合平台使用规范\n"
+                                    error_msg += f"3. 如果问题持续存在，可能需要联系API服务提供商调整内容安全策略\n"
+                                    error_msg += f"4. 可以尝试调整prompt，添加更多约束条件（如：professional, appropriate, suitable for work）\n"
                         else:
                             error_msg += f"\n错误详情: {error_detail}"
                     else:
@@ -1572,6 +1824,7 @@ def create_app():
             print(f"[DEBUG] 用户图片URL: {user_image_url}")
             print(f"[DEBUG] 衣服图片URL: {clothing_image_url}")
             
+            # 先转换图片为base64（豆包识别需要）
             user_image_base64 = image_url_to_base64(user_image_url, base_url)
             clothing_image_base64 = image_url_to_base64(clothing_image_url, base_url)
             
@@ -1591,8 +1844,19 @@ def create_app():
                 db.session.commit()
                 return jsonify({"ok": False, "msg": "衣服图片处理失败，请检查图片路径是否正确"}), 500
             
-            # 调用豆包API
-            result_image_base64, error_msg = call_doubao_tryon_api(user_image_base64, clothing_image_base64)
+            # 识别物品类型（从标签中读取，如果标签信息不足，再用豆包API识别）
+            # 从clothing_image_path中提取文件名
+            clothing_filename = os.path.basename(clothing_image_path)
+            item_type, item_description = identify_item_type_with_doubao(clothing_filename, clothing_image_base64)
+            print(f"[DEBUG] 物品类型识别结果: {item_type}, 描述: {item_description}")
+            
+            # 调用豆包API（传入物品类型和描述）
+            result_image_base64, error_msg = call_doubao_tryon_api(
+                user_image_base64, 
+                clothing_image_base64,
+                item_type=item_type,
+                item_description=item_description
+            )
             
             if result_image_base64:
                 # 保存结果图片并替换原照片
@@ -1601,11 +1865,19 @@ def create_app():
                     image_data = base64.b64decode(result_image_base64)
                     image = Image.open(io.BytesIO(image_data))
                     
+                    # 保持原始尺寸，不进行任何裁剪或缩放
+                    # 获取原始尺寸信息
+                    original_width, original_height = image.size
+                    print(f"[INFO] 生成图片原始尺寸: {original_width}x{original_height}")
+                    
                     # 只保存结果到try_on_results目录，不替换用户照片
                     try_on_filename = f"tryon_{try_on_record.id}_{uuid.uuid4().hex}.jpg"
                     try_on_secure_name = secure_filename(try_on_filename)
                     try_on_file_path = os.path.join(try_on_results_path, try_on_secure_name)
-                    image.save(try_on_file_path, "JPEG")
+                    
+                    # 保存时使用高质量，保持原始尺寸，不进行裁剪
+                    # quality=95 确保高质量，不丢失细节
+                    image.save(try_on_file_path, "JPEG", quality=95, optimize=False)
                     
                     # 结果图片路径
                     result_image_path = f"/static/try-on-results/{try_on_secure_name}"

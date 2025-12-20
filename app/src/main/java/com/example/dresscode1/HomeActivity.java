@@ -1519,9 +1519,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                     Log.d("TryOn", "完整图片URL: " + resultImageUrl);
                                     
                                     // 使用Glide加载图片，并添加加载监听
+                                    // 使用fitCenter确保完整显示，不裁剪图片
                                     Glide.with(HomeActivity.this)
                                             .load(resultImageUrl)
-                                            .centerCrop()
+                                            .fitCenter()  // 完整显示，不裁剪
+                                            .dontTransform()  // 不进行任何变换，保持原始尺寸
                                             .placeholder(android.R.drawable.ic_menu_gallery)
                                             .error(android.R.drawable.ic_menu_report_image)
                                             .listener(new RequestListener<android.graphics.drawable.Drawable>() {
