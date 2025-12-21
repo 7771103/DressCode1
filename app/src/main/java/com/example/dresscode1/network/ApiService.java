@@ -61,7 +61,10 @@ public interface ApiService {
             @Query("page") int page,
             @Query("page_size") int pageSize,
             @Query("current_user_id") Integer currentUserId,
-            @Query("tags") String tags
+            @Query("tags") String tags,
+            @Query("exclude_tags") String excludeTags,
+            @Query("temperature") String temperature,
+            @Query("weather_text") String weatherText
     );
     
     // 获取标签分类

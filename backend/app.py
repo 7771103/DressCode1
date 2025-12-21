@@ -148,6 +148,129 @@ def create_app():
         else:  # "中性" 或 "unknown"
             return None  # None表示匹配所有性别
     
+    def get_post_weather_tags(image_path):
+        """根据图片路径获取帖子的天气标签列表"""
+        labels = load_image_labels()
+        label = labels.get(image_path, {})
+        weather_tags = label.get("weather", [])
+        if isinstance(weather_tags, list):
+            return [tag.strip() for tag in weather_tags if tag and isinstance(tag, str)]
+        return []
+    
+    def get_post_age_groups(image_path):
+        """根据图片路径获取帖子的年龄组标签列表"""
+        labels = load_image_labels()
+        label = labels.get(image_path, {})
+        age_groups = label.get("age_group", [])
+        if isinstance(age_groups, list):
+            return [group.strip() for group in age_groups if group and isinstance(group, str)]
+        return []
+    
+    def match_weather_tags(temperature, weather_text, post_weather_tags):
+        """
+        根据当前天气信息匹配帖子的天气标签
+        temperature: 温度（字符串，如 "25"）
+        weather_text: 天气描述（字符串，如 "晴"、"雨"等）
+        post_weather_tags: 帖子的天气标签列表
+        返回: True表示匹配，False表示不匹配
+        """
+        if not post_weather_tags:
+            return True  # 如果帖子没有天气标签，则匹配所有天气
+        
+        try:
+            temp = float(temperature) if temperature else None
+        except (ValueError, TypeError):
+            temp = None
+        
+        weather_text_lower = (weather_text or "").lower()
+        
+        # 根据天气描述匹配
+        weather_keywords = {
+            "晴": ["晴", "sunny", "sun"],
+            "雨": ["雨", "rain", "rainy", "drizzle", "shower"],
+            "雪": ["雪", "snow", "snowy"],
+            "阴": ["阴", "cloudy", "overcast"],
+            "雾": ["雾", "fog", "foggy", "mist"],
+            "风": ["风", "wind", "windy"]
+        }
+        
+        matched_keywords = []
+        for key, keywords in weather_keywords.items():
+            if any(kw in weather_text_lower for kw in keywords):
+                matched_keywords.append(key)
+        
+        # 根据温度范围匹配
+        temp_category = None
+        if temp is not None:
+            if temp >= 30:
+                temp_category = "高温"
+            elif temp >= 25:
+                temp_category = "温暖"
+            elif temp >= 15:
+                temp_category = "温和"
+            elif temp >= 5:
+                temp_category = "凉爽"
+            elif temp >= 0:
+                temp_category = "寒冷"
+            else:
+                temp_category = "严寒"
+        
+        # 检查帖子标签是否匹配
+        for tag in post_weather_tags:
+            tag_lower = tag.lower()
+            # 匹配天气描述
+            if matched_keywords and any(kw in tag_lower for kw in matched_keywords):
+                return True
+            # 匹配温度范围
+            if temp_category and temp_category in tag_lower:
+                return True
+            # 精确匹配天气描述
+            if weather_text and weather_text in tag:
+                return True
+        
+        # 如果没有明确的天气信息，返回True（不进行过滤）
+        if not weather_text and temp is None:
+            return True
+        
+        # 如果帖子有天气标签但都不匹配，返回False
+        return False
+    
+    def match_age_group(user_age, post_age_groups):
+        """
+        根据用户年龄匹配帖子的年龄组标签
+        user_age: 用户年龄（整数）
+        post_age_groups: 帖子的年龄组标签列表
+        返回: True表示匹配，False表示不匹配
+        """
+        if not post_age_groups:
+            return True  # 如果帖子没有年龄组标签，则匹配所有年龄
+        
+        if user_age is None or user_age <= 0:
+            return True  # 如果用户没有设置年龄，则匹配所有年龄组
+        
+        # 定义年龄组映射
+        age_group_mapping = {
+            "儿童": (0, 12),
+            "青少年": (13, 17),
+            "青年": (18, 25),
+            "成年": (26, 35),
+            "中年": (36, 50),
+            "中老年": (51, 65),
+            "老年": (66, 150)
+        }
+        
+        # 检查用户年龄是否匹配任何年龄组
+        for group_name, (min_age, max_age) in age_group_mapping.items():
+            if min_age <= user_age <= max_age:
+                # 检查帖子标签中是否包含这个年龄组（精确匹配或包含匹配）
+                for tag in post_age_groups:
+                    tag_clean = tag.strip() if tag else ""
+                    if tag_clean == group_name or group_name in tag_clean or tag_clean in group_name:
+                        return True
+        
+        # 如果没有匹配的年龄组，返回False
+        return False
+    
     def identify_item_type(image_path):
         """
         识别物品类型：从标签中读取，判断是配饰（试戴）还是服装（换装）
@@ -698,24 +821,63 @@ def create_app():
         current_user_id = request.args.get("current_user_id", type=int) or 0
         
         # 获取标签筛选参数（多个标签用逗号分隔）
+        # None: 不筛选（返回所有帖子）
+        # "": 全不选（返回空结果）
+        # "tag1,tag2": 按标签筛选
         tags_filter = request.args.get("tags", type=str)
         selected_tags = []
-        if tags_filter:
-            selected_tags = [tag.strip() for tag in tags_filter.split(",") if tag.strip()]
+        tags_filter_mode = None  # None: 不筛选, "empty": 全不选, "filter": 按标签筛选
+        
+        if tags_filter is not None:
+            if tags_filter == "":
+                # 空字符串表示全不选，返回空结果
+                tags_filter_mode = "empty"
+            elif tags_filter:
+                # 有值，按标签筛选
+                selected_tags = [tag.strip() for tag in tags_filter.split(",") if tag.strip()]
+                if selected_tags:
+                    tags_filter_mode = "filter"
+        
+        # 获取需要排除的标签参数（多个标签用逗号分隔）
+        # 用于排除某个分类的所有标签（当用户对某个分类点击"全不选"时）
+        exclude_tags_filter = request.args.get("exclude_tags", type=str)
+        exclude_tags = []
+        if exclude_tags_filter:
+            exclude_tags = [tag.strip() for tag in exclude_tags_filter.split(",") if tag.strip()]
 
-        # 获取当前用户的性别（如果已登录）
+        # 获取天气参数（用于推荐）
+        temperature = request.args.get("temperature", type=str)  # 温度，如 "25"
+        weather_text = request.args.get("weather_text", type=str)  # 天气描述，如 "晴"、"雨"等
+
+        # 获取当前用户的性别和年龄（如果已登录）
         user_gender = None
+        user_age = None
         if current_user_id > 0:
             current_user = User.query.get(current_user_id)
-            if current_user and current_user.gender:
-                user_gender = current_user.gender
+            if current_user:
+                if current_user.gender:
+                    user_gender = current_user.gender
+                if current_user.age:
+                    user_age = current_user.age
 
         query = Post.query
         
         # 如果指定了标签筛选，则按标签过滤
-        if selected_tags:
+        if tags_filter_mode == "empty":
+            # 全不选，返回空结果（使用一个不可能匹配的条件）
+            query = query.filter(Post.id < 0)
+        elif tags_filter_mode == "filter" and selected_tags:
             # 通过 PostTag 和 Tag 表关联查询
             query = query.join(PostTag).join(Tag).filter(Tag.name.in_(selected_tags)).distinct()
+        
+        # 如果指定了需要排除的标签，则排除所有有这些标签的帖子
+        if exclude_tags:
+            # 获取所有有这些标签的帖子ID
+            excluded_post_ids_query = db.session.query(PostTag.post_id).join(Tag).filter(
+                Tag.name.in_(exclude_tags)
+            ).distinct()
+            # 排除这些帖子
+            query = query.filter(~Post.id.in_(excluded_post_ids_query))
         
         if user_id:
             query = query.filter_by(user_id=user_id)
@@ -732,21 +894,69 @@ def create_app():
         # 先获取所有帖子
         all_posts = query.all()
         
-        # 如果用户设置了性别，则根据性别过滤帖子
-        filtered_posts = []
-        if user_gender:
-            labels = load_image_labels()
-            for post in all_posts:
-                # 获取帖子的性别标签
+        # 综合推荐过滤：根据性别、天气、年龄进行推荐
+        fully_matched_posts = []  # 完全匹配的推荐帖子（满足所有条件）
+        partially_matched_posts = []  # 部分匹配的帖子（满足部分条件）
+        unmatched_posts = []  # 完全不匹配的帖子
+        labels = load_image_labels()
+        
+        # 检查是否有任何推荐条件
+        has_recommendation_conditions = user_gender or temperature or weather_text or user_age
+        
+        for post in all_posts:
+            # 1. 性别匹配
+            gender_match = True
+            if user_gender:
                 post_gender = get_post_gender(post.image_path)
-                # 如果帖子性别为None（中性或unknown），则显示
-                # 如果帖子性别与用户性别匹配，则显示
-                if post_gender is None or post_gender == user_gender:
-                    filtered_posts.append(post)
-        else:
-            # 如果用户未设置性别，显示所有帖子
+                # 如果帖子性别为None（中性或unknown），则匹配
+                # 如果帖子性别与用户性别匹配，则匹配
+                gender_match = (post_gender is None or post_gender == user_gender)
+            
+            # 2. 天气匹配
+            weather_match = True
+            if temperature or weather_text:
+                post_weather_tags = get_post_weather_tags(post.image_path)
+                weather_match = match_weather_tags(temperature, weather_text, post_weather_tags)
+            
+            # 3. 年龄匹配
+            age_match = True
+            if user_age:
+                post_age_groups = get_post_age_groups(post.image_path)
+                age_match = match_age_group(user_age, post_age_groups)
+            
+            # 分类帖子：根据匹配程度分类
+            if has_recommendation_conditions:
+                # 计算匹配的条件数量
+                match_count = 0
+                if gender_match:
+                    match_count += 1
+                if weather_match:
+                    match_count += 1
+                if age_match:
+                    match_count += 1
+                
+                # 根据匹配程度分类
+                if gender_match and weather_match and age_match:
+                    # 完全匹配所有条件
+                    fully_matched_posts.append(post)
+                elif match_count > 0:
+                    # 部分匹配（至少满足一个条件）
+                    partially_matched_posts.append(post)
+                else:
+                    # 完全不匹配
+                    unmatched_posts.append(post)
+            else:
+                # 如果没有任何推荐条件，所有帖子都算作完全匹配
+                fully_matched_posts.append(post)
+        
+        # 合并帖子：优先显示完全匹配的，然后是部分匹配的，最后是其他不匹配的
+        # 如果没有完全匹配的帖子，返回部分匹配的；如果部分匹配的也没有，返回所有不匹配的
+        filtered_posts = fully_matched_posts + partially_matched_posts + unmatched_posts
+        
+        # 确保至少返回一些帖子（如果没有匹配的，返回所有帖子）
+        if not filtered_posts and all_posts:
             filtered_posts = all_posts
-
+        
         # 分页处理
         total = len(filtered_posts)
         start = (page - 1) * page_size

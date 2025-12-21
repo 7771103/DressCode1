@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Collections;
 import android.provider.MediaStore;
 import android.content.ContentValues;
 import android.graphics.Bitmap;
@@ -32,8 +33,10 @@ import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -221,6 +224,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     // 筛选相关
     private Map<String, List<String>> tagCategories = new HashMap<>();
     private Map<String, Set<String>> selectedTags = new HashMap<>(); // 每个分类选中的标签
+    private static final String ALL_TAGS_MARKER = "__ALL__"; // 特殊标记，表示全选（不筛选）
     
     // 衣橱排序相关
     private String wardrobeSortMode = "time"; // time: 按时间排序（默认）
@@ -238,6 +242,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private boolean hasMoreMyPosts = true;
     private boolean hasMoreLikedPosts = true;
     private boolean hasMoreCollectedPosts = true;
+    
+    // 首页帖子列表分页相关变量
+    private int homePostsPage = 1;
+    private boolean isLoadingHomePosts = false;
+    private boolean hasMoreHomePosts = true;
     
     private ActivityResultLauncher<Intent> editProfileLauncher;
     private ActivityResultLauncher<Intent> imagePickerLauncher;
@@ -1177,8 +1186,31 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 设置 RecyclerView
         postAdapter = new PostAdapter(this, currentUserId);
-        rvPosts.setLayoutManager(new LinearLayoutManager(this));
+        LinearLayoutManager homePostsLayoutManager = new LinearLayoutManager(this);
+        rvPosts.setLayoutManager(homePostsLayoutManager);
         rvPosts.setAdapter(postAdapter);
+        
+        // 为首页帖子列表添加滚动监听，实现分页加载
+        rvPosts.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
+                super.onScrolled(recyclerView, dx, dy);
+                
+                LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (layoutManager == null) return;
+                
+                int visibleItemCount = layoutManager.getChildCount();
+                int totalItemCount = layoutManager.getItemCount();
+                int firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition();
+                
+                // 当滚动到接近底部时（剩余3个item时）加载更多
+                if (!isLoadingHomePosts && hasMoreHomePosts && currentTab.equals("home")) {
+                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 3) {
+                        loadMoreHomePosts();
+                    }
+                }
+            }
+        });
         
         myPostAdapter = new PostAdapter(this, currentUserId);
         LinearLayoutManager myPostsLayoutManager = new LinearLayoutManager(this);
@@ -2581,28 +2613,183 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     private void loadPosts() {
+        // 重置分页状态
+        homePostsPage = 1;
+        hasMoreHomePosts = true;
+        isLoadingHomePosts = false;
+        
         // 构建标签筛选参数
         List<String> allSelectedTags = new ArrayList<>();
-        for (Set<String> tags : selectedTags.values()) {
-            allSelectedTags.addAll(tags);
+        List<String> allExcludeTags = new ArrayList<>();
+        boolean hasAllSelected = false;
+        boolean hasAllNoneSelected = false;
+        int allNoneSelectedCount = 0; // 统计全不选的分类数量
+        int totalCategories = selectedTags.size(); // 总分类数量
+        for (Map.Entry<String, Set<String>> entry : selectedTags.entrySet()) {
+            String categoryName = entry.getKey();
+            Set<String> tags = entry.getValue();
+            if (tags != null && tags.contains(ALL_TAGS_MARKER)) {
+                // 如果某个分类是全选，则不筛选该分类
+                hasAllSelected = true;
+            } else if (tags != null && tags.isEmpty()) {
+                // 如果某个分类是全不选（空集合），将该分类的所有标签添加到排除列表
+                hasAllNoneSelected = true;
+                allNoneSelectedCount++;
+                List<String> categoryTags = tagCategories.get(categoryName);
+                if (categoryTags != null) {
+                    allExcludeTags.addAll(categoryTags);
+                }
+            } else if (tags != null && !tags.isEmpty()) {
+                // 只添加非空且不包含特殊标记的标签
+                allSelectedTags.addAll(tags);
+            }
         }
-        String tagsParam = allSelectedTags.isEmpty() ? null : String.join(",", allSelectedTags);
+        // 如果所有分类都是全选，则 tagsParam 为 null（不筛选）
+        // 如果所有分类都全不选且没有部分选中的标签，则 tagsParam 为空字符串（返回空结果）
+        // 如果只有部分分类全不选，但有 exclude_tags，则 tagsParam 为 null（不筛选），使用 exclude_tags 排除
+        // 否则 tagsParam 为选中的标签列表
+        String tagsParam = null;
+        if (hasAllNoneSelected && allSelectedTags.isEmpty() && allNoneSelectedCount == totalCategories) {
+            // 所有分类都全不选，且没有部分选中的标签，发送空字符串表示返回空结果
+            tagsParam = "";
+        } else if (!allSelectedTags.isEmpty()) {
+            // 有部分选中的标签
+            tagsParam = String.join(",", allSelectedTags);
+        }
+        // 如果只有部分分类全不选（allNoneSelectedCount < totalCategories），且有 exclude_tags，
+        // 则 tagsParam 保持为 null（不筛选），让后端使用 exclude_tags 来排除
+        // 如果所有分类都是全选（hasAllSelected 为 true）且没有部分选中的标签，tagsParam 保持为 null（不筛选）
         
-        ApiClient.getService().getPosts(1, 20, currentUserId > 0 ? currentUserId : null, tagsParam)
+        // 构建排除标签参数
+        String excludeTagsParam = null;
+        if (!allExcludeTags.isEmpty()) {
+            excludeTagsParam = String.join(",", allExcludeTags);
+        }
+        
+        // 获取天气信息用于推荐
+        String temperature = currentWeatherTemp;
+        String weatherText = currentWeatherText;
+        
+        ApiClient.getService().getPosts(homePostsPage, 20, currentUserId > 0 ? currentUserId : null, tagsParam, excludeTagsParam, temperature, weatherText)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingHomePosts = false;
                         if (response.isSuccessful() && response.body() != null) {
                             PostListResponse postListResponse = response.body();
                             if (postListResponse.isOk() && postListResponse.getData() != null) {
-                                postAdapter.setPosts(postListResponse.getData());
+                                List<Post> posts = postListResponse.getData();
+                                postAdapter.setPosts(posts);
+                                // 如果返回的数据少于20，说明没有更多数据了
+                                if (posts.size() < 20) {
+                                    hasMoreHomePosts = false;
+                                }
+                            } else {
+                                hasMoreHomePosts = false;
                             }
+                        } else {
+                            hasMoreHomePosts = false;
                         }
                     }
 
                     @Override
                     public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingHomePosts = false;
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+    
+    private void loadMoreHomePosts() {
+        if (isLoadingHomePosts || !hasMoreHomePosts) {
+            return;
+        }
+        
+        isLoadingHomePosts = true;
+        homePostsPage++;
+        
+        // 构建标签筛选参数
+        List<String> allSelectedTags = new ArrayList<>();
+        List<String> allExcludeTags = new ArrayList<>();
+        boolean hasAllSelected = false;
+        boolean hasAllNoneSelected = false;
+        int allNoneSelectedCount = 0; // 统计全不选的分类数量
+        int totalCategories = selectedTags.size(); // 总分类数量
+        for (Map.Entry<String, Set<String>> entry : selectedTags.entrySet()) {
+            String categoryName = entry.getKey();
+            Set<String> tags = entry.getValue();
+            if (tags != null && tags.contains(ALL_TAGS_MARKER)) {
+                // 如果某个分类是全选，则不筛选该分类
+                hasAllSelected = true;
+            } else if (tags != null && tags.isEmpty()) {
+                // 如果某个分类是全不选（空集合），将该分类的所有标签添加到排除列表
+                hasAllNoneSelected = true;
+                allNoneSelectedCount++;
+                List<String> categoryTags = tagCategories.get(categoryName);
+                if (categoryTags != null) {
+                    allExcludeTags.addAll(categoryTags);
+                }
+            } else if (tags != null && !tags.isEmpty()) {
+                // 只添加非空且不包含特殊标记的标签
+                allSelectedTags.addAll(tags);
+            }
+        }
+        // 如果所有分类都是全选，则 tagsParam 为 null（不筛选）
+        // 如果所有分类都全不选且没有部分选中的标签，则 tagsParam 为空字符串（返回空结果）
+        // 如果只有部分分类全不选，但有 exclude_tags，则 tagsParam 为 null（不筛选），使用 exclude_tags 排除
+        // 否则 tagsParam 为选中的标签列表
+        String tagsParam = null;
+        if (hasAllNoneSelected && allSelectedTags.isEmpty() && allNoneSelectedCount == totalCategories) {
+            // 所有分类都全不选，且没有部分选中的标签，发送空字符串表示返回空结果
+            tagsParam = "";
+        } else if (!allSelectedTags.isEmpty()) {
+            // 有部分选中的标签
+            tagsParam = String.join(",", allSelectedTags);
+        }
+        // 如果只有部分分类全不选（allNoneSelectedCount < totalCategories），且有 exclude_tags，
+        // 则 tagsParam 保持为 null（不筛选），让后端使用 exclude_tags 来排除
+        // 如果所有分类都是全选（hasAllSelected 为 true）且没有部分选中的标签，tagsParam 保持为 null（不筛选）
+        
+        // 构建排除标签参数
+        String excludeTagsParam = null;
+        if (!allExcludeTags.isEmpty()) {
+            excludeTagsParam = String.join(",", allExcludeTags);
+        }
+        
+        // 获取天气信息用于推荐
+        String temperature = currentWeatherTemp;
+        String weatherText = currentWeatherText;
+        
+        ApiClient.getService().getPosts(homePostsPage, 20, currentUserId > 0 ? currentUserId : null, tagsParam, excludeTagsParam, temperature, weatherText)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingHomePosts = false;
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                List<Post> posts = postListResponse.getData();
+                                if (posts.isEmpty()) {
+                                    hasMoreHomePosts = false;
+                                } else {
+                                    postAdapter.appendPosts(posts);
+                                    // 如果返回的数据少于20，说明没有更多数据了
+                                    if (posts.size() < 20) {
+                                        hasMoreHomePosts = false;
+                                    }
+                                }
+                            } else {
+                                hasMoreHomePosts = false;
+                            }
+                        } else {
+                            hasMoreHomePosts = false;
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingHomePosts = false;
+                        Toast.makeText(HomeActivity.this, "加载更多失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
     }
@@ -2620,9 +2807,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                             if (tagResponse.isOk() && tagResponse.getData() != null) {
                                 tagCategories = tagResponse.getData();
                                 Log.d("HomeActivity", "Loaded " + tagCategories.size() + " tag categories");
-                                // 初始化每个分类的选中标签为空（默认全选）
+                                // 初始化每个分类的选中标签为全选标记（默认全选，不筛选）
                                 for (String category : tagCategories.keySet()) {
-                                    selectedTags.put(category, new HashSet<>());
+                                    selectedTags.put(category, Collections.singleton(ALL_TAGS_MARKER));
                                 }
                                 // 在UI线程中更新视图
                                 runOnUiThread(() -> {
@@ -2720,27 +2907,61 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
     
     private void showCategoryFilterDialog(String categoryName, List<String> tags) {
-        // 创建多选对话框
+        // 创建自定义布局
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_filter_tags, null);
+        ListView listViewTags = dialogView.findViewById(R.id.listViewTags);
+        Button btnSelectAll = dialogView.findViewById(R.id.btnSelectAll);
+        Button btnSelectNone = dialogView.findViewById(R.id.btnSelectNone);
+        
+        // 准备数据
+        String[] tagArray = tags.toArray(new String[0]);
         boolean[] checkedItems = new boolean[tags.size()];
         Set<String> selected = selectedTags.get(categoryName);
         
-        // 如果 selected 为空，表示全选（所有项都选中）
-        boolean isAllSelected = selected.isEmpty();
+        // 如果 selected 为 null 或包含特殊标记，表示全选（所有项都选中）
+        boolean isAllSelected = selected == null || selected.contains(ALL_TAGS_MARKER);
         for (int i = 0; i < tags.size(); i++) {
-            checkedItems[i] = isAllSelected || selected.contains(tags.get(i));
+            checkedItems[i] = isAllSelected || (selected != null && selected.contains(tags.get(i)));
         }
-        
-        String[] tagArray = tags.toArray(new String[0]);
-        
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("筛选: " + categoryName);
         
         // 使用一个数组来存储选中的状态，以便在对话框关闭后访问
         final boolean[] finalCheckedItems = checkedItems.clone();
         
-        builder.setMultiChoiceItems(tagArray, checkedItems, (dialog, which, isChecked) -> {
-            finalCheckedItems[which] = isChecked;
+        // 设置 ListView 适配器
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, 
+            android.R.layout.simple_list_item_multiple_choice, tagArray);
+        listViewTags.setAdapter(adapter);
+        listViewTags.setChoiceMode(ListView.CHOICE_MODE_MULTIPLE);
+        
+        // 设置初始选中状态
+        for (int i = 0; i < tags.size(); i++) {
+            listViewTags.setItemChecked(i, finalCheckedItems[i]);
+        }
+        
+        // 监听列表项选择变化
+        listViewTags.setOnItemClickListener((parent, view, position, id) -> {
+            finalCheckedItems[position] = listViewTags.isItemChecked(position);
         });
+        
+        // 全选按钮点击事件
+        btnSelectAll.setOnClickListener(v -> {
+            for (int i = 0; i < tags.size(); i++) {
+                listViewTags.setItemChecked(i, true);
+                finalCheckedItems[i] = true;
+            }
+        });
+        
+        // 全不选按钮点击事件
+        btnSelectNone.setOnClickListener(v -> {
+            for (int i = 0; i < tags.size(); i++) {
+                listViewTags.setItemChecked(i, false);
+                finalCheckedItems[i] = false;
+            }
+        });
+        
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("筛选: " + categoryName);
+        builder.setView(dialogView);
         
         builder.setPositiveButton("确定", (dialog, which) -> {
             Set<String> newSelected = new HashSet<>();
@@ -2749,10 +2970,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                     newSelected.add(tags.get(i));
                 }
             }
-            // 如果全部选中，则设置为空集合（表示全选）
+            // 如果全部选中，则设置为包含特殊标记的集合（表示全选，不筛选）
             if (newSelected.size() == tags.size()) {
-                selectedTags.put(categoryName, new HashSet<>());
+                selectedTags.put(categoryName, Collections.singleton(ALL_TAGS_MARKER));
             } else {
+                // 如果全部未选中，则设置为空集合（表示全不选，返回空结果）
+                // 否则设置为选中的标签集合
                 selectedTags.put(categoryName, newSelected);
             }
             // 重新加载帖子
@@ -2762,14 +2985,6 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         });
         
         builder.setNegativeButton("取消", null);
-        builder.setNeutralButton("全选", (dialog, which) -> {
-            // 全选所有项 - 直接设置为全选状态
-            selectedTags.put(categoryName, new HashSet<>());
-            // 重新加载帖子
-            if (currentHomeFeedTab.equals("recommend")) {
-                loadPosts();
-            }
-        });
         
         builder.show();
     }
@@ -3332,6 +3547,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     private String currentWeatherCity = "--";
+    private String currentWeatherTemp = null;  // 当前温度
+    private String currentWeatherText = null;  // 当前天气描述
 
     private void fetchWeatherByLocation(double latitude, double longitude) {
         // 使用经纬度格式：经度,纬度（和风天气API要求格式，提高精度到6位小数）
@@ -3465,16 +3682,20 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         String temp = now.getTemp();
         if (temp != null && !temp.isEmpty()) {
             tvWeatherTemp.setText(temp + "°");
+            currentWeatherTemp = temp;  // 保存温度用于推荐
         } else {
             tvWeatherTemp.setText("--°");
+            currentWeatherTemp = null;
         }
         
         // 更新天气描述
         String text = now.getText();
         if (text != null && !text.isEmpty()) {
             tvWeatherText.setText(text);
+            currentWeatherText = text;  // 保存天气描述用于推荐
         } else {
             tvWeatherText.setText("--");
+            currentWeatherText = null;
         }
 
         // 更新城市名称显示
