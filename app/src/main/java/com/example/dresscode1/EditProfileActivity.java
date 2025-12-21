@@ -61,6 +61,7 @@ public class EditProfileActivity extends AppCompatActivity {
     private TextInputEditText etOldPassword;
     private TextInputEditText etNewPassword;
     private TextInputEditText etConfirmPassword;
+    private TextInputEditText etHobby;
     private Button btnSave;
 
     private UserPrefs userPrefs;
@@ -106,6 +107,7 @@ public class EditProfileActivity extends AppCompatActivity {
         etOldPassword = findViewById(R.id.etOldPassword);
         etNewPassword = findViewById(R.id.etNewPassword);
         etConfirmPassword = findViewById(R.id.etConfirmPassword);
+        etHobby = findViewById(R.id.etHobby);
         btnSave = findViewById(R.id.btnSave);
     }
 
@@ -259,6 +261,11 @@ public class EditProfileActivity extends AppCompatActivity {
             }
         }
 
+        // 设置个人爱好简介
+        if (userInfo.getHobby() != null) {
+            etHobby.setText(userInfo.getHobby());
+        }
+
         // 加载头像
         if (userInfo.getAvatar() != null && !userInfo.getAvatar().isEmpty()) {
             String avatarUrl = "http://10.134.17.29:5000" + userInfo.getAvatar();
@@ -316,9 +323,12 @@ public class EditProfileActivity extends AppCompatActivity {
             }
         }
 
+        // 获取个人爱好简介
+        String hobby = etHobby.getText() != null ? etHobby.getText().toString().trim() : "";
+
         // 如果有新头像，先上传头像
         if (selectedImageUri != null) {
-            uploadAvatarAndSaveProfile(nickname, age, gender, needChangePassword, oldPassword, newPassword);
+            uploadAvatarAndSaveProfile(nickname, age, gender, hobby, needChangePassword, oldPassword, newPassword);
             return;
         }
 
@@ -327,6 +337,7 @@ public class EditProfileActivity extends AppCompatActivity {
         updateRequest.setNickname(nickname.isEmpty() ? null : nickname);
         updateRequest.setAge(age);
         updateRequest.setGender(gender);
+        updateRequest.setHobby(hobby.isEmpty() ? null : hobby);
 
         ApiClient.getService().updateUser(currentUserId, updateRequest)
                 .enqueue(new Callback<BaseResponse>() {
@@ -363,7 +374,7 @@ public class EditProfileActivity extends AppCompatActivity {
                 });
     }
 
-    private void uploadAvatarAndSaveProfile(String nickname, Integer age, String gender, 
+    private void uploadAvatarAndSaveProfile(String nickname, Integer age, String gender, String hobby,
                                              boolean needChangePassword, String oldPassword, String newPassword) {
         try {
             // 从 URI 获取输入流
@@ -416,7 +427,7 @@ public class EditProfileActivity extends AppCompatActivity {
                                         Glide.with(EditProfileActivity.this).load(avatarUrl).into(ivAvatar);
                                     }
                                     // 更新用户信息
-                                    updateUserInfoAfterAvatarUpload(nickname, age, gender, needChangePassword, oldPassword, newPassword);
+                                    updateUserInfoAfterAvatarUpload(nickname, age, gender, hobby, needChangePassword, oldPassword, newPassword);
                                 } else {
                                     Toast.makeText(EditProfileActivity.this, uploadResponse.getMsg(), Toast.LENGTH_SHORT).show();
                                 }
@@ -435,12 +446,13 @@ public class EditProfileActivity extends AppCompatActivity {
         }
     }
 
-    private void updateUserInfoAfterAvatarUpload(String nickname, Integer age, String gender,
+    private void updateUserInfoAfterAvatarUpload(String nickname, Integer age, String gender, String hobby,
                                                  boolean needChangePassword, String oldPassword, String newPassword) {
         UpdateUserRequest updateRequest = new UpdateUserRequest();
         updateRequest.setNickname(nickname.isEmpty() ? null : nickname);
         updateRequest.setAge(age);
         updateRequest.setGender(gender);
+        updateRequest.setHobby(hobby.isEmpty() ? null : hobby);
         // 头像已经在服务器端更新，不需要再设置
 
         ApiClient.getService().updateUser(currentUserId, updateRequest)

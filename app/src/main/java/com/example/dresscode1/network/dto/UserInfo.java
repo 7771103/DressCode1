@@ -39,6 +39,9 @@ public class UserInfo {
     @SerializedName("isFollowing")
     private boolean isFollowing;
 
+    @SerializedName("hobby")
+    private String hobby;
+
     public int getId() {
         return id;
     }
@@ -133,6 +136,14 @@ public class UserInfo {
 
     public void setFollowing(boolean following) {
         isFollowing = following;
+    }
+
+    public String getHobby() {
+        return hobby;
+    }
+
+    public void setHobby(String hobby) {
+        this.hobby = hobby;
     }
 }
 

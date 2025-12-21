@@ -15,6 +15,9 @@ public class UpdateUserRequest {
     @SerializedName("gender")
     private String gender;
 
+    @SerializedName("hobby")
+    private String hobby;
+
     public UpdateUserRequest() {
     }
 
@@ -55,6 +58,14 @@ public class UpdateUserRequest {
 
     public void setGender(String gender) {
         this.gender = gender;
+    }
+
+    public String getHobby() {
+        return hobby;
+    }
+
+    public void setHobby(String hobby) {
+        this.hobby = hobby;
     }
 }
 

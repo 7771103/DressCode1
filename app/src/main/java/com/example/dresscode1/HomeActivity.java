@@ -1117,14 +1117,15 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     if (result.getResultCode() == RESULT_OK) {
-                        // 刷新用户信息
-                        loadUserInfo();
-                        // 刷新帖子列表，确保头像更新
-                        refreshHomeFeed();
-                        // 如果当前在"我的"页面，也刷新我的帖子列表
-                        if (currentTab.equals("profile")) {
-                            switchProfileTab(currentProfileTab);
-                        }
+                        // 先刷新用户信息，完成后再刷新帖子列表，确保使用最新的用户信息（爱好、性别等）来推荐
+                        loadUserInfo(() -> {
+                            // 刷新帖子列表，确保使用最新的用户信息来推荐
+                            refreshHomeFeed();
+                            // 如果当前在"我的"页面，也刷新我的帖子列表
+                            if (currentTab.equals("profile")) {
+                                switchProfileTab(currentProfileTab);
+                            }
+                        });
                     }
                 }
         );
@@ -2214,7 +2215,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
     
     private void loadUserInfo() {
+        loadUserInfo(null);
+    }
+    
+    private void loadUserInfo(Runnable onComplete) {
         if (currentUserId <= 0) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
             return;
         }
         
@@ -2229,11 +2237,17 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 updateUserInfo(userInfo);
                             }
                         }
+                        if (onComplete != null) {
+                            onComplete.run();
+                        }
                     }
 
                     @Override
                     public void onFailure(Call<UserInfoResponse> call, Throwable t) {
                         // 忽略错误，使用默认值
+                        if (onComplete != null) {
+                            onComplete.run();
+                        }
                     }
                 });
     }
