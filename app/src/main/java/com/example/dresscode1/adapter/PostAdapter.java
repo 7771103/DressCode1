@@ -30,6 +30,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     private List<Post> posts = new ArrayList<>();
     private OnPostActionListener listener;
     private int currentUserId;
+    private boolean useStaggeredLayout; // 是否使用瀑布流布局
 
     public interface OnPostActionListener {
         void onLikeClick(Post post, int position);
@@ -43,6 +44,13 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     public PostAdapter(OnPostActionListener listener, int currentUserId) {
         this.listener = listener;
         this.currentUserId = currentUserId;
+        this.useStaggeredLayout = false;
+    }
+
+    public PostAdapter(OnPostActionListener listener, int currentUserId, boolean useStaggeredLayout) {
+        this.listener = listener;
+        this.currentUserId = currentUserId;
+        this.useStaggeredLayout = useStaggeredLayout;
     }
 
     public void setPosts(List<Post> posts) {
@@ -76,9 +84,10 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
     @NonNull
     @Override
     public PostViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        int layoutRes = useStaggeredLayout ? R.layout.item_post_staggered : R.layout.item_post;
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_post, parent, false);
-        return new PostViewHolder(view);
+                .inflate(layoutRes, parent, false);
+        return new PostViewHolder(view, useStaggeredLayout);
     }
 
     @Override
@@ -108,12 +117,13 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         private LinearLayout btnCollect;
         private MaterialButton btnDelete;
         private LinearLayout llTags;
+        private boolean isStaggeredLayout;
 
-        public PostViewHolder(@NonNull View itemView) {
+        public PostViewHolder(@NonNull View itemView, boolean isStaggeredLayout) {
             super(itemView);
+            this.isStaggeredLayout = isStaggeredLayout;
             tvUserNickname = itemView.findViewById(R.id.tvUserNickname);
             ivUserAvatar = itemView.findViewById(R.id.ivUserAvatar);
-            tvCreatedAt = itemView.findViewById(R.id.tvCreatedAt);
             tvContent = itemView.findViewById(R.id.tvContent);
             ivPostImage = itemView.findViewById(R.id.ivPostImage);
             tvLikeCount = itemView.findViewById(R.id.tvLikeCount);
@@ -125,7 +135,12 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             btnComment = itemView.findViewById(R.id.btnComment);
             btnCollect = itemView.findViewById(R.id.btnCollect);
             btnDelete = itemView.findViewById(R.id.btnDelete);
-            llTags = itemView.findViewById(R.id.llTags);
+            
+            // 只有非瀑布流布局才有这些视图
+            if (!isStaggeredLayout) {
+                tvCreatedAt = itemView.findViewById(R.id.tvCreatedAt);
+                llTags = itemView.findViewById(R.id.llTags);
+            }
         }
 
         public void bind(Post post) {
@@ -149,20 +164,31 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                 // 这里可以设置一个默认的占位图或者保持背景色
             }
 
-            // 设置时间
-            if (post.getCreatedAt() != null && !post.getCreatedAt().isEmpty()) {
-                tvCreatedAt.setText(TimeUtils.formatRelativeTime(post.getCreatedAt()));
-            } else {
-                tvCreatedAt.setText("");
+            // 设置时间（仅非瀑布流布局）
+            if (!isStaggeredLayout && tvCreatedAt != null) {
+                if (post.getCreatedAt() != null && !post.getCreatedAt().isEmpty()) {
+                    tvCreatedAt.setText(TimeUtils.formatRelativeTime(post.getCreatedAt()));
+                } else {
+                    tvCreatedAt.setText("");
+                }
             }
 
-            tvContent.setText(post.getContent() != null ? post.getContent() : "");
+            // 设置内容（瀑布流布局限制3行）
+            String content = post.getContent() != null ? post.getContent() : "";
+            tvContent.setText(content);
+            if (isStaggeredLayout) {
+                tvContent.setMaxLines(3);
+                tvContent.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            }
+            
             tvLikeCount.setText(String.valueOf(post.getLikeCount()));
             tvCommentCount.setText(String.valueOf(post.getCommentCount()));
             tvCollectCount.setText(String.valueOf(post.getCollectCount()));
 
-            // 显示标签
-            displayTags(post.getTags());
+            // 显示标签（仅非瀑布流布局）
+            if (!isStaggeredLayout && llTags != null) {
+                displayTags(post.getTags());
+            }
 
             // 设置点赞状态
             if (post.isLiked()) {

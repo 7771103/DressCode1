@@ -61,6 +61,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.StaggeredGridLayoutManager;
 
 import com.airbnb.lottie.LottieAnimationView;
 import com.bumptech.glide.Glide;
@@ -1263,9 +1264,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             hsvFilters.setVisibility(View.VISIBLE);
         }
         
-        // 设置 RecyclerView
-        postAdapter = new PostAdapter(this, currentUserId);
-        LinearLayoutManager homePostsLayoutManager = new LinearLayoutManager(this);
+        // 设置 RecyclerView - 使用瀑布流布局（2列）
+        postAdapter = new PostAdapter(this, currentUserId, true);
+        StaggeredGridLayoutManager homePostsLayoutManager = new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL);
+        homePostsLayoutManager.setGapStrategy(StaggeredGridLayoutManager.GAP_HANDLING_MOVE_ITEMS_BETWEEN_SPANS);
         rvPosts.setLayoutManager(homePostsLayoutManager);
         rvPosts.setAdapter(postAdapter);
         
@@ -1275,12 +1277,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 super.onScrolled(recyclerView, dx, dy);
                 
-                LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
+                StaggeredGridLayoutManager layoutManager = (StaggeredGridLayoutManager) recyclerView.getLayoutManager();
                 if (layoutManager == null) return;
                 
                 int visibleItemCount = layoutManager.getChildCount();
                 int totalItemCount = layoutManager.getItemCount();
-                int firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition();
+                int[] firstVisibleItemPositions = layoutManager.findFirstVisibleItemPositions(null);
+                int firstVisibleItemPosition = firstVisibleItemPositions.length > 0 ? firstVisibleItemPositions[0] : 0;
                 
                 // 当滚动到接近底部时（剩余3个item时）加载更多
                 if (!isLoadingHomePosts && hasMoreHomePosts && currentTab.equals("home")) {
@@ -1291,8 +1294,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             }
         });
         
-        myPostAdapter = new PostAdapter(this, currentUserId);
-        LinearLayoutManager myPostsLayoutManager = new LinearLayoutManager(this);
+        myPostAdapter = new PostAdapter(this, currentUserId, true);
+        StaggeredGridLayoutManager myPostsLayoutManager = new StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL);
+        myPostsLayoutManager.setGapStrategy(StaggeredGridLayoutManager.GAP_HANDLING_MOVE_ITEMS_BETWEEN_SPANS);
         rvMyPosts.setLayoutManager(myPostsLayoutManager);
         rvMyPosts.setAdapter(myPostAdapter);
         
@@ -1313,12 +1317,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             public void onScrolled(@NonNull RecyclerView recyclerView, int dx, int dy) {
                 super.onScrolled(recyclerView, dx, dy);
                 
-                LinearLayoutManager layoutManager = (LinearLayoutManager) recyclerView.getLayoutManager();
+                StaggeredGridLayoutManager layoutManager = (StaggeredGridLayoutManager) recyclerView.getLayoutManager();
                 if (layoutManager == null) return;
                 
                 int visibleItemCount = layoutManager.getChildCount();
                 int totalItemCount = layoutManager.getItemCount();
-                int firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition();
+                int[] firstVisibleItemPositions = layoutManager.findFirstVisibleItemPositions(null);
+                int firstVisibleItemPosition = firstVisibleItemPositions.length > 0 ? firstVisibleItemPositions[0] : 0;
                 
                 // 当滚动到接近底部时（剩余3个item时）加载更多
                 if (!isLoadingMyPosts && !isLoadingLikedPosts && !isLoadingCollectedPosts) {
