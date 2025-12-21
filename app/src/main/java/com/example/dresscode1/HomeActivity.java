@@ -3003,6 +3003,67 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     @Override
+    public void onDeleteClick(Post post, int position) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (post.getUserId() != currentUserId) {
+            Toast.makeText(this, "只能删除自己的帖子", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 确认删除对话框
+        new AlertDialog.Builder(this)
+                .setTitle("删除帖子")
+                .setMessage("确定要删除这条帖子吗？删除后无法恢复。")
+                .setPositiveButton("删除", (dialog, which) -> deletePost(post, position))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
+    private void deletePost(Post post, int position) {
+        if (currentUserId <= 0 || post == null) {
+            return;
+        }
+        
+        ApiClient.getService().deletePost(post.getId(), currentUserId)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BaseResponse deleteResponse = response.body();
+                            if (deleteResponse.isOk()) {
+                                Toast.makeText(HomeActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                
+                                // 从适配器中移除帖子
+                                if (currentTab.equals("profile") && myPostAdapter != null) {
+                                    // 如果在"我的"页面，从myPostAdapter中移除
+                                    myPostAdapter.removePost(position);
+                                } else if (postAdapter != null) {
+                                    // 如果在首页，从postAdapter中移除
+                                    postAdapter.removePost(position);
+                                }
+                                
+                                // 刷新用户信息（更新帖子数）
+                                loadUserInfo();
+                            } else {
+                                Toast.makeText(HomeActivity.this, deleteResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(HomeActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        Toast.makeText(HomeActivity.this, "删除失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    @Override
     public void onCollectClick(Post post, int position) {
         if (currentUserId <= 0) {
             Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
@@ -3426,13 +3487,18 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         if (icon != null && !icon.isEmpty()) {
             // 尝试多种和风天气图标URL格式
-            // 格式1: https://a.hecdn.net/img/common/icon/202306d/{icon}.png (新版本)
-            // 格式2: https://cdn.heweather.com/cond_icon/{icon}.png (旧版本)
-            // 格式3: https://devapi.qweather.com/v7/weather/icon?icon={icon} (API格式)
+            // 格式1: https://a.hecdn.net/img/common/icon/100d/{icon}.png (100x100 白天)
+            // 格式2: https://a.hecdn.net/img/common/icon/100n/{icon}.png (100x100 夜晚)
+            // 格式3: https://devapi.qweather.com/v7/weather/icon?icon={icon} (API格式，需要key)
+            // 格式4: https://a.hecdn.net/img/common/icon/150d/{icon}.png (150x150 白天，备用)
             
-            String iconUrl1 = "https://a.hecdn.net/img/common/icon/202306d/" + icon + ".png";
-            String iconUrl2 = "https://cdn.heweather.com/cond_icon/" + icon + ".png";
-            String iconUrl3 = "https://devapi.qweather.com/v7/weather/icon?icon=" + icon;
+            // 根据当前时间判断是白天还是夜晚（简单判断：6-18点为白天）
+            int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            String dayNight = (hour >= 6 && hour < 18) ? "d" : "n";
+            
+            String iconUrl1 = "https://a.hecdn.net/img/common/icon/100" + dayNight + "/" + icon + ".png";
+            String iconUrl2 = "https://a.hecdn.net/img/common/icon/150" + dayNight + "/" + icon + ".png";
+            String iconUrl3 = "https://a.hecdn.net/img/common/icon/200" + dayNight + "/" + icon + ".png";
             
             Log.d("HomeActivity", "Loading weather icon from: " + iconUrl1);
             

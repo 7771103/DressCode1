@@ -439,5 +439,57 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
         }
         // 如果点击的是当前查看用户自己的头像，不做任何操作（已经在自己的主页了）
     }
+
+    @Override
+    public void onDeleteClick(Post post, int position) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (post.getUserId() != currentUserId) {
+            Toast.makeText(this, "只能删除自己的帖子", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 确认删除对话框
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除帖子")
+                .setMessage("确定要删除这条帖子吗？删除后无法恢复。")
+                .setPositiveButton("删除", (dialog, which) -> deletePost(post, position))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
+    private void deletePost(Post post, int position) {
+        if (currentUserId <= 0 || post == null) {
+            return;
+        }
+        
+        ApiClient.getService().deletePost(post.getId(), currentUserId)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BaseResponse deleteResponse = response.body();
+                            if (deleteResponse.isOk()) {
+                                Toast.makeText(UserProfileActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                postAdapter.removePost(position);
+                                // 刷新用户信息（更新帖子数）
+                                loadUserInfo();
+                            } else {
+                                Toast.makeText(UserProfileActivity.this, deleteResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(UserProfileActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        Toast.makeText(UserProfileActivity.this, "删除失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
 }
 

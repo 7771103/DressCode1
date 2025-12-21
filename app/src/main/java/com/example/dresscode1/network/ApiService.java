@@ -154,6 +154,13 @@ public interface ApiService {
     @POST("/api/posts")
     Call<CreatePostResponse> createPost(@Body CreatePostRequest request);
 
+    // 删除帖子
+    @DELETE("/api/posts/{postId}")
+    Call<BaseResponse> deletePost(
+            @Path("postId") int postId,
+            @Query("user_id") int userId
+    );
+
     // 更新用户信息
     @Headers("Content-Type: application/json")
     @PUT("/api/user/{userId}")

@@ -63,6 +63,7 @@ public class PostDetailActivity extends AppCompatActivity {
     private LinearLayout llUserInfo;
     private MaterialButton btnFollow;
     private MaterialButton btnTryOn;
+    private MaterialButton btnDelete;
     private LinearLayout llTags;
 
     private Post post;
@@ -96,6 +97,7 @@ public class PostDetailActivity extends AppCompatActivity {
         loadUserInfo();
         loadComments();
         setupActions();
+        setupDeleteButton();
     }
 
     private void bindViews() {
@@ -118,6 +120,7 @@ public class PostDetailActivity extends AppCompatActivity {
         llUserInfo = findViewById(R.id.llUserInfo);
         btnFollow = findViewById(R.id.btnFollow);
         btnTryOn = findViewById(R.id.btnTryOn);
+        btnDelete = findViewById(R.id.btnDelete);
         llTags = findViewById(R.id.llTags);
     }
 
@@ -227,6 +230,57 @@ public class PostDetailActivity extends AppCompatActivity {
                 startActivity(intent);
             }
         });
+    }
+    
+    private void setupDeleteButton() {
+        btnDelete.setOnClickListener(v -> {
+            if (currentUserId <= 0) {
+                Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            if (post == null) {
+                return;
+            }
+            
+            // 确认删除对话框
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("删除帖子")
+                    .setMessage("确定要删除这条帖子吗？删除后无法恢复。")
+                    .setPositiveButton("删除", (dialog, which) -> deletePost())
+                    .setNegativeButton("取消", null)
+                    .show();
+        });
+    }
+    
+    private void deletePost() {
+        if (currentUserId <= 0 || post == null) {
+            return;
+        }
+        
+        ApiClient.getService().deletePost(post.getId(), currentUserId)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BaseResponse deleteResponse = response.body();
+                            if (deleteResponse.isOk()) {
+                                Toast.makeText(PostDetailActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                // 返回上一页
+                                finish();
+                            } else {
+                                Toast.makeText(PostDetailActivity.this, deleteResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(PostDetailActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        Toast.makeText(PostDetailActivity.this, "删除失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
     
     private void tryOnClothing() {
@@ -415,10 +469,13 @@ public class PostDetailActivity extends AppCompatActivity {
             return;
         }
 
-        // 如果是自己的帖子，不显示关注按钮
+        // 如果是自己的帖子，不显示关注按钮，显示删除按钮
         if (currentUserId > 0 && currentUserId == post.getUserId()) {
             btnFollow.setVisibility(View.GONE);
+            btnDelete.setVisibility(View.VISIBLE);
             return;
+        } else {
+            btnDelete.setVisibility(View.GONE);
         }
 
         // 获取用户信息以检查关注状态

@@ -9,6 +9,7 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.google.android.material.button.MaterialButton;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -36,6 +37,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         void onCollectClick(Post post, int position);
         void onPostClick(Post post);
         void onUserClick(Post post);
+        void onDeleteClick(Post post, int position);
     }
 
     public PostAdapter(OnPostActionListener listener, int currentUserId) {
@@ -60,6 +62,14 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         if (position >= 0 && position < posts.size()) {
             posts.set(position, post);
             notifyItemChanged(position);
+        }
+    }
+
+    public void removePost(int position) {
+        if (position >= 0 && position < posts.size()) {
+            posts.remove(position);
+            notifyItemRemoved(position);
+            notifyItemRangeChanged(position, posts.size() - position);
         }
     }
 
@@ -96,6 +106,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         private LinearLayout btnLike;
         private LinearLayout btnComment;
         private LinearLayout btnCollect;
+        private MaterialButton btnDelete;
         private LinearLayout llTags;
 
         public PostViewHolder(@NonNull View itemView) {
@@ -113,6 +124,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             btnLike = itemView.findViewById(R.id.btnLike);
             btnComment = itemView.findViewById(R.id.btnComment);
             btnCollect = itemView.findViewById(R.id.btnCollect);
+            btnDelete = itemView.findViewById(R.id.btnDelete);
             llTags = itemView.findViewById(R.id.llTags);
         }
 
@@ -216,6 +228,20 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                     listener.onPostClick(post);
                 }
             });
+            
+            // 删除按钮（仅当是当前用户的帖子时显示）
+            if (btnDelete != null) {
+                if (currentUserId > 0 && post.getUserId() == currentUserId) {
+                    btnDelete.setVisibility(View.VISIBLE);
+                    btnDelete.setOnClickListener(v -> {
+                        if (listener != null) {
+                            listener.onDeleteClick(post, getAdapterPosition());
+                        }
+                    });
+                } else {
+                    btnDelete.setVisibility(View.GONE);
+                }
+            }
         }
 
         private void displayTags(List<String> tags) {

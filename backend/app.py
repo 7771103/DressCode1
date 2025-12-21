@@ -1761,6 +1761,43 @@ def create_app():
             }
         ), 201
 
+    # 删除帖子
+    @app.route("/api/posts/<int:post_id>", methods=["DELETE"])
+    def delete_post(post_id):
+        # 支持查询参数和请求体两种方式传递 user_id（向后兼容）
+        user_id = request.args.get("user_id", type=int)
+        if not user_id:
+            data = request.get_json(silent=True) or {}
+            user_id = data.get("user_id")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "需要登录"}), 401
+        
+        # 调试日志
+        print(f"[DELETE POST] post_id={post_id}, user_id={user_id}")
+        
+        post = Post.query.get(post_id)
+        if not post:
+            print(f"[DELETE POST] Post {post_id} not found")
+            return jsonify({"ok": False, "msg": "帖子不存在"}), 404
+        
+        # 检查是否是帖子所有者
+        if post.user_id != user_id:
+            return jsonify({"ok": False, "msg": "只能删除自己的帖子"}), 403
+        
+        try:
+            # 删除帖子相关的标签关联（由于外键约束，会自动级联删除）
+            PostTag.query.filter_by(post_id=post_id).delete()
+            
+            # 删除帖子（由于外键约束，相关的点赞、收藏、评论会自动级联删除）
+            db.session.delete(post)
+            db.session.commit()
+            
+            return jsonify({"ok": True, "msg": "删除成功"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"ok": False, "msg": f"删除失败: {str(e)}"}), 500
+
     # 辅助函数：将图片URL或路径转换为base64
     def image_url_to_base64(image_url, base_url=None):
         """将图片URL或本地路径转换为base64编码"""

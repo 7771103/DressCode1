@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.dresscode1.adapter.PostAdapter;
 import com.example.dresscode1.network.ApiClient;
+import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
@@ -301,6 +302,56 @@ public class SearchActivity extends AppCompatActivity implements PostAdapter.OnP
         Intent intent = new Intent(this, UserProfileActivity.class);
         intent.putExtra("user_id", post.getUserId());
         startActivity(intent);
+    }
+
+    @Override
+    public void onDeleteClick(Post post, int position) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (post.getUserId() != currentUserId) {
+            Toast.makeText(this, "只能删除自己的帖子", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 确认删除对话框
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除帖子")
+                .setMessage("确定要删除这条帖子吗？删除后无法恢复。")
+                .setPositiveButton("删除", (dialog, which) -> deletePost(post, position))
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
+    private void deletePost(Post post, int position) {
+        if (currentUserId <= 0 || post == null) {
+            return;
+        }
+        
+        ApiClient.getService().deletePost(post.getId(), currentUserId)
+                .enqueue(new Callback<BaseResponse>() {
+                    @Override
+                    public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            BaseResponse deleteResponse = response.body();
+                            if (deleteResponse.isOk()) {
+                                Toast.makeText(SearchActivity.this, "删除成功", Toast.LENGTH_SHORT).show();
+                                postAdapter.removePost(position);
+                            } else {
+                                Toast.makeText(SearchActivity.this, deleteResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(SearchActivity.this, "删除失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<BaseResponse> call, Throwable t) {
+                        Toast.makeText(SearchActivity.this, "删除失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 }
 
