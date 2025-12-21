@@ -126,8 +126,32 @@ def get_image_files():
 
 
 def extract_tags_from_label(label):
-    """从标签数据中提取标签列表"""
+    """从标签数据中提取所有标签列表"""
     tags = []
+    
+    # 提取性别标签
+    gender = label.get("gender")
+    if gender and isinstance(gender, str) and gender.strip() and gender.lower() != "unknown":
+        tags.append(gender.strip())
+    
+    # 提取年龄组标签
+    if label.get("age_group") and isinstance(label["age_group"], list):
+        tags.extend([s.strip() for s in label["age_group"] if s and isinstance(s, str)])
+    
+    # 提取颜色标签（所有颜色）
+    if label.get("colors") and isinstance(label["colors"], list):
+        colors = [s.strip() for s in label["colors"] if s and isinstance(s, str)]
+        tags.extend(colors)
+    
+    # 提取物品标签
+    if label.get("items") and isinstance(label["items"], list):
+        items = [s.strip() for s in label["items"] if s and isinstance(s, str)]
+        tags.extend(items)
+    
+    # 提取图案或材质标签（所有）
+    if label.get("patterns_or_materials") and isinstance(label["patterns_or_materials"], list):
+        patterns = [s.strip() for s in label["patterns_or_materials"] if s and isinstance(s, str)]
+        tags.extend(patterns)
     
     # 提取风格标签
     if label.get("styles") and isinstance(label["styles"], list):
@@ -137,30 +161,28 @@ def extract_tags_from_label(label):
     if label.get("season") and isinstance(label["season"], list):
         tags.extend([s.strip() for s in label["season"] if s and isinstance(s, str)])
     
+    # 提取天气标签
+    if label.get("weather") and isinstance(label["weather"], list):
+        tags.extend([s.strip() for s in label["weather"] if s and isinstance(s, str)])
+    
     # 提取场景标签
     if label.get("scenes") and isinstance(label["scenes"], list):
         tags.extend([s.strip() for s in label["scenes"] if s and isinstance(s, str)])
     
-    # 如果前面三个字段都没有标签，尝试从其他字段提取
-    if not tags:
-        # 提取性别标签
-        gender = label.get("gender")
-        if gender and isinstance(gender, str) and gender.strip() and gender.lower() != "unknown":
-            tags.append(gender.strip())
-        
-        # 提取年龄组标签
-        if label.get("age_group") and isinstance(label["age_group"], list):
-            tags.extend([s.strip() for s in label["age_group"] if s and isinstance(s, str)])
-        
-        # 提取颜色标签（只取前2个主要颜色）
-        if label.get("colors") and isinstance(label["colors"], list):
-            colors = [s.strip() for s in label["colors"] if s and isinstance(s, str)]
-            tags.extend(colors[:2])  # 只取前2个颜色
-        
-        # 提取图案或材质标签（只取前2个）
-        if label.get("patterns_or_materials") and isinstance(label["patterns_or_materials"], list):
-            patterns = [s.strip() for s in label["patterns_or_materials"] if s and isinstance(s, str)]
-            tags.extend(patterns[:2])  # 只取前2个
+    # 提取妆容标签（如果是字符串）
+    beauty = label.get("beauty")
+    if beauty and isinstance(beauty, str) and beauty.strip():
+        tags.append(beauty.strip())
+    
+    # 提取发型标签（如果是字符串）
+    hair = label.get("hair")
+    if hair and isinstance(hair, str) and hair.strip():
+        tags.append(hair.strip())
+    
+    # 提取配饰标签
+    if label.get("accessories") and isinstance(label["accessories"], list):
+        accessories = [s.strip() for s in label["accessories"] if s and isinstance(s, str)]
+        tags.extend(accessories)
     
     # 去重并过滤空标签
     tags = list(set([tag for tag in tags if tag]))

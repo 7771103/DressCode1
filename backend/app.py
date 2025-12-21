@@ -550,6 +550,96 @@ def create_app():
             }
         ), 200
 
+    # 获取标签分类
+    @app.route("/api/tags/categories", methods=["GET"])
+    def get_tag_categories():
+        """获取标签分类，按照 labels.jsonl 的字段进行分类"""
+        # 从数据库获取所有标签
+        all_tags = Tag.query.all()
+        all_tag_names = {tag.name for tag in all_tags}
+        
+        # 加载 labels.jsonl 数据，用于分类
+        labels = load_image_labels()
+        
+        # 定义标签分类映射（根据 labels.jsonl 的字段）
+        categories = {
+            "季节": set(),  # season
+            "风格": set(),  # styles
+            "场景": set(),  # scenes
+            "天气": set(),  # weather
+            "颜色": set(),  # colors
+            "性别": set(),  # gender
+            "年龄组": set(),  # age_group
+            "物品": set(),  # items
+            "图案材质": set(),  # patterns_or_materials
+            "妆容": set(),  # beauty
+            "发型": set(),  # hair
+            "配饰": set(),  # accessories
+        }
+        
+        # 从 labels.jsonl 中提取各类标签
+        for label in labels.values():
+            # 季节
+            if label.get("season") and isinstance(label["season"], list):
+                categories["季节"].update([s.strip() for s in label["season"] if s and isinstance(s, str)])
+            
+            # 风格
+            if label.get("styles") and isinstance(label["styles"], list):
+                categories["风格"].update([s.strip() for s in label["styles"] if s and isinstance(s, str)])
+            
+            # 场景
+            if label.get("scenes") and isinstance(label["scenes"], list):
+                categories["场景"].update([s.strip() for s in label["scenes"] if s and isinstance(s, str)])
+            
+            # 天气
+            if label.get("weather") and isinstance(label["weather"], list):
+                categories["天气"].update([s.strip() for s in label["weather"] if s and isinstance(s, str)])
+            
+            # 颜色
+            if label.get("colors") and isinstance(label["colors"], list):
+                categories["颜色"].update([s.strip() for s in label["colors"] if s and isinstance(s, str)])
+            
+            # 性别
+            gender = label.get("gender")
+            if gender and isinstance(gender, str) and gender.strip() and gender.lower() != "unknown":
+                categories["性别"].add(gender.strip())
+            
+            # 年龄组
+            if label.get("age_group") and isinstance(label["age_group"], list):
+                categories["年龄组"].update([s.strip() for s in label["age_group"] if s and isinstance(s, str)])
+            
+            # 物品
+            if label.get("items") and isinstance(label["items"], list):
+                categories["物品"].update([s.strip() for s in label["items"] if s and isinstance(s, str)])
+            
+            # 图案材质
+            if label.get("patterns_or_materials") and isinstance(label["patterns_or_materials"], list):
+                categories["图案材质"].update([s.strip() for s in label["patterns_or_materials"] if s and isinstance(s, str)])
+            
+            # 妆容
+            beauty = label.get("beauty")
+            if beauty and isinstance(beauty, str) and beauty.strip():
+                categories["妆容"].add(beauty.strip())
+            
+            # 发型
+            hair = label.get("hair")
+            if hair and isinstance(hair, str) and hair.strip():
+                categories["发型"].add(hair.strip())
+            
+            # 配饰
+            if label.get("accessories") and isinstance(label["accessories"], list):
+                categories["配饰"].update([s.strip() for s in label["accessories"] if s and isinstance(s, str)])
+        
+        # 只返回数据库中实际存在的标签
+        result = {}
+        for category_name, tag_set in categories.items():
+            # 过滤出数据库中存在的标签
+            existing_tags = sorted([tag for tag in tag_set if tag in all_tag_names])
+            if existing_tags:  # 只返回有标签的分类
+                result[category_name] = existing_tags
+        
+        return jsonify({"ok": True, "data": result}), 200
+
     # 获取帖子列表
     @app.route("/api/posts", methods=["GET"])
     def get_posts():
@@ -557,6 +647,12 @@ def create_app():
         page_size = request.args.get("page_size", 20, type=int)
         user_id = request.args.get("user_id", type=int)  # 可选：获取特定用户的帖子
         current_user_id = request.args.get("current_user_id", type=int) or 0
+        
+        # 获取标签筛选参数（多个标签用逗号分隔）
+        tags_filter = request.args.get("tags", type=str)
+        selected_tags = []
+        if tags_filter:
+            selected_tags = [tag.strip() for tag in tags_filter.split(",") if tag.strip()]
 
         # 获取当前用户的性别（如果已登录）
         user_gender = None
@@ -566,6 +662,12 @@ def create_app():
                 user_gender = current_user.gender
 
         query = Post.query
+        
+        # 如果指定了标签筛选，则按标签过滤
+        if selected_tags:
+            # 通过 PostTag 和 Tag 表关联查询
+            query = query.join(PostTag).join(Tag).filter(Tag.name.in_(selected_tags)).distinct()
+        
         if user_id:
             query = query.filter_by(user_id=user_id)
         # 排除未来的日期（防止错误数据）
@@ -727,6 +829,126 @@ def create_app():
                 "page": page,
                 "pageSize": page_size,
                 "total": posts.total,
+            }
+        ), 200
+
+    # 搜索帖子（根据内容和标签）
+    @app.route("/api/posts/search", methods=["GET"])
+    def search_posts():
+        query = request.args.get("q", "").strip()
+        page = request.args.get("page", 1, type=int)
+        page_size = request.args.get("page_size", 20, type=int)
+        current_user_id = request.args.get("current_user_id", type=int) or 0
+
+        if not query:
+            return jsonify(
+                {"ok": True, "data": [], "page": page, "pageSize": page_size, "total": 0}
+            ), 200
+
+        # 获取当前用户的性别（如果已登录）
+        user_gender = None
+        if current_user_id > 0:
+            current_user = User.query.get(current_user_id)
+            if current_user and current_user.gender:
+                user_gender = current_user.gender
+
+        # 构建搜索查询
+        # 1. 搜索帖子内容
+        content_query = Post.query.filter(
+            Post.content.like(f"%{query}%"),
+            Post.created_at <= datetime.utcnow()
+        )
+
+        # 2. 搜索标签
+        tag_query = Post.query.join(PostTag).join(Tag).filter(
+            Tag.name.like(f"%{query}%"),
+            Post.created_at <= datetime.utcnow()
+        )
+
+        # 合并两个查询结果（去重）
+        content_posts = content_query.all()
+        tag_posts = tag_query.all()
+        
+        # 使用集合去重，保持顺序
+        all_posts_dict = {}
+        for post in content_posts + tag_posts:
+            if post.id not in all_posts_dict:
+                all_posts_dict[post.id] = post
+        
+        filtered_posts = list(all_posts_dict.values())
+        
+        # 如果用户设置了性别，则根据性别过滤帖子
+        if user_gender:
+            labels = load_image_labels()
+            gender_filtered_posts = []
+            for post in filtered_posts:
+                post_gender = get_post_gender(post.image_path)
+                if post_gender is None or post_gender == user_gender:
+                    gender_filtered_posts.append(post)
+            filtered_posts = gender_filtered_posts
+
+        # 排序：按时间降序，然后按综合分数降序
+        filtered_posts.sort(
+            key=lambda p: (
+                p.created_at,
+                -(p.like_count + p.collect_count * 2)
+            ),
+            reverse=True
+        )
+
+        # 分页处理
+        total = len(filtered_posts)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_posts = filtered_posts[start:end]
+
+        result = []
+        for post in paginated_posts:
+            user = User.query.get(post.user_id)
+            is_liked = (
+                Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
+                is not None
+                if current_user_id
+                else False
+            )
+            is_collected = (
+                Collection.query.filter_by(
+                    user_id=current_user_id, post_id=post.id
+                ).first()
+                is not None
+                if current_user_id
+                else False
+            )
+
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
+            result.append(
+                {
+                    "id": post.id,
+                    "userId": post.user_id,
+                    "userNickname": user.nickname if user else "未知用户",
+                    "userAvatar": user.avatar if user else None,
+                    "imagePath": post.image_path,
+                    "content": post.content or "",
+                    "tags": tags,
+                    "likeCount": post.like_count,
+                    "commentCount": post.comment_count,
+                    "collectCount": post.collect_count,
+                    "isLiked": is_liked,
+                    "isCollected": is_collected,
+                    "createdAt": format_utc_time(post.created_at),
+                }
+            )
+
+        return jsonify(
+            {
+                "ok": True,
+                "data": result,
+                "page": page,
+                "pageSize": page_size,
+                "total": total,
             }
         ), 200
 

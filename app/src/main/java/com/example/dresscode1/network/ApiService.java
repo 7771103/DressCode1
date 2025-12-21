@@ -30,6 +30,7 @@ import com.example.dresscode1.network.dto.TryOnHistoryResponse;
 import com.example.dresscode1.network.dto.WardrobeItemListResponse;
 import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
 import com.example.dresscode1.network.dto.BaseResponse;
+import com.example.dresscode1.network.dto.TagCategoriesResponse;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
@@ -57,6 +58,20 @@ public interface ApiService {
     // 获取帖子列表
     @GET("/api/posts")
     Call<PostListResponse> getPosts(
+            @Query("page") int page,
+            @Query("page_size") int pageSize,
+            @Query("current_user_id") Integer currentUserId,
+            @Query("tags") String tags
+    );
+    
+    // 获取标签分类
+    @GET("/api/tags/categories")
+    Call<TagCategoriesResponse> getTagCategories();
+
+    // 搜索帖子
+    @GET("/api/posts/search")
+    Call<PostListResponse> searchPosts(
+            @Query("q") String query,
             @Query("page") int page,
             @Query("page_size") int pageSize,
             @Query("current_user_id") Integer currentUserId

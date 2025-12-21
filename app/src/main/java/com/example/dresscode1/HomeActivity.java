@@ -16,10 +16,15 @@ import android.location.Address;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
 import android.provider.MediaStore;
 import android.content.ContentValues;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.Drawable;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
@@ -30,6 +35,7 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.util.Log;
@@ -77,6 +83,7 @@ import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.PostListResponse;
+import com.example.dresscode1.network.dto.TagCategoriesResponse;
 import com.example.dresscode1.network.dto.ChatMessage;
 import com.example.dresscode1.network.dto.ChatRequest;
 import com.example.dresscode1.network.dto.ChatResponse;
@@ -134,6 +141,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private TextView tvTitle;
     private TextView tabHomeRecommend;
     private TextView tabHomeFollowing;
+    private ImageButton btnSearch;
+    private HorizontalScrollView hsvFilters;
+    private LinearLayout llFilters;
     // 天气相关视图
     private LinearLayout llWeather;
     private ImageView ivWeatherIcon;
@@ -205,6 +215,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private String currentProfileTab = "posts"; // posts, likes, collections
     private String conversationId; // 对话会话ID
     
+    // 筛选相关
+    private Map<String, List<String>> tagCategories = new HashMap<>();
+    private Map<String, Set<String>> selectedTags = new HashMap<>(); // 每个分类选中的标签
+    
     // 衣橱排序相关
     private String wardrobeSortMode = "time"; // time: 按时间排序（默认）
     private List<WardrobeItem> cachedWardrobeItems = null; // 缓存的衣橱数据
@@ -254,6 +268,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         setupImagePicker();
         setupDialogImagePicker();
         setupWardrobeImagePicker();
+        Log.d("HomeActivity", "onCreate: About to call loadTagCategories()");
+        loadTagCategories();
         refreshHomeFeed();
         loadUserPhotos();
         
@@ -262,6 +278,19 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 初始化天气功能
         initWeather();
+        
+        // 延迟检查筛选栏状态
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (hsvFilters != null) {
+                Log.d("HomeActivity", "Filter bar visibility check: " + 
+                    (hsvFilters.getVisibility() == View.VISIBLE ? "VISIBLE" : 
+                     hsvFilters.getVisibility() == View.GONE ? "GONE" : "INVISIBLE"));
+                Log.d("HomeActivity", "Filter bar child count: " + 
+                    (llFilters != null ? llFilters.getChildCount() : "llFilters is null"));
+            } else {
+                Log.e("HomeActivity", "hsvFilters is null in delayed check");
+            }
+        }, 2000);
     }
     
     private void setupImagePicker() {
@@ -1016,6 +1045,9 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tvTitle = findViewById(R.id.tvTitle);
         tabHomeRecommend = findViewById(R.id.tabHomeRecommend);
         tabHomeFollowing = findViewById(R.id.tabHomeFollowing);
+        btnSearch = findViewById(R.id.btnSearch);
+        hsvFilters = findViewById(R.id.hsvFilters);
+        llFilters = findViewById(R.id.llFilters);
         // 天气相关视图
         llWeather = findViewById(R.id.llWeather);
         ivWeatherIcon = findViewById(R.id.ivWeatherIcon);
@@ -1129,6 +1161,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
         tvTitle.setText("首页");
         updateHomeFeedTabStyle();
+        // 筛选栏只在"推荐"标签页显示
+        if (hsvFilters != null) {
+            hsvFilters.setVisibility(View.VISIBLE);
+        }
         
         // 设置 RecyclerView
         postAdapter = new PostAdapter(this, currentUserId);
@@ -1187,6 +1223,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         tabProfile.setOnClickListener(v -> switchToProfile());
         tabHomeRecommend.setOnClickListener(v -> switchHomeFeedTab("recommend"));
         tabHomeFollowing.setOnClickListener(v -> switchHomeFeedTab("follow"));
+        btnSearch.setOnClickListener(v -> {
+            Intent intent = new Intent(HomeActivity.this, SearchActivity.class);
+            startActivity(intent);
+        });
         
         // 对话相关操作
         setupChatActions();
@@ -1357,6 +1397,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
         
+        // 筛选栏只在"推荐"标签页显示
+        if (hsvFilters != null) {
+            hsvFilters.setVisibility("recommend".equals(currentHomeFeedTab) ? View.VISIBLE : View.GONE);
+        }
+        
         refreshHomeFeed();
     }
 
@@ -1370,6 +1415,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         }
         currentHomeFeedTab = tab;
         updateHomeFeedTabStyle();
+        // 恢复标题
+        tvTitle.setText("首页");
+        // 筛选栏只在"推荐"标签页显示
+        if (hsvFilters != null) {
+            hsvFilters.setVisibility("recommend".equals(tab) ? View.VISIBLE : View.GONE);
+        }
         refreshHomeFeed();
     }
 
@@ -2521,7 +2572,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     private void loadPosts() {
-        ApiClient.getService().getPosts(1, 20, currentUserId > 0 ? currentUserId : null)
+        // 构建标签筛选参数
+        List<String> allSelectedTags = new ArrayList<>();
+        for (Set<String> tags : selectedTags.values()) {
+            allSelectedTags.addAll(tags);
+        }
+        String tagsParam = allSelectedTags.isEmpty() ? null : String.join(",", allSelectedTags);
+        
+        ApiClient.getService().getPosts(1, 20, currentUserId > 0 ? currentUserId : null, tagsParam)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
@@ -2538,6 +2596,256 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
+    }
+    
+    private void loadTagCategories() {
+        Log.d("HomeActivity", "Loading tag categories...");
+        ApiClient.getService().getTagCategories()
+                .enqueue(new Callback<TagCategoriesResponse>() {
+                    @Override
+                    public void onResponse(Call<TagCategoriesResponse> call, Response<TagCategoriesResponse> response) {
+                        Log.d("HomeActivity", "Tag categories response: " + (response.isSuccessful() ? "success" : "failed"));
+                        if (response.isSuccessful() && response.body() != null) {
+                            TagCategoriesResponse tagResponse = response.body();
+                            Log.d("HomeActivity", "Tag response ok: " + tagResponse.isOk());
+                            if (tagResponse.isOk() && tagResponse.getData() != null) {
+                                tagCategories = tagResponse.getData();
+                                Log.d("HomeActivity", "Loaded " + tagCategories.size() + " tag categories");
+                                // 初始化每个分类的选中标签为空（默认全选）
+                                for (String category : tagCategories.keySet()) {
+                                    selectedTags.put(category, new HashSet<>());
+                                }
+                                // 在UI线程中更新视图
+                                runOnUiThread(() -> {
+                                    setupFilterUI();
+                                });
+                            } else {
+                                Log.w("HomeActivity", "Tag response data is null or not ok");
+                            }
+                        } else {
+                            Log.w("HomeActivity", "Tag categories response not successful or body is null");
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<TagCategoriesResponse> call, Throwable t) {
+                        Log.e("HomeActivity", "Failed to load tag categories: " + t.getMessage(), t);
+                        // 加载失败不影响主功能
+                    }
+                });
+    }
+    
+    private void setupFilterUI() {
+        Log.d("HomeActivity", "setupFilterUI called");
+        if (llFilters == null) {
+            Log.e("HomeActivity", "llFilters is null");
+            return;
+        }
+        
+        if (hsvFilters == null) {
+            Log.e("HomeActivity", "hsvFilters is null");
+            return;
+        }
+        
+        llFilters.removeAllViews();
+        
+        if (tagCategories.isEmpty()) {
+            Log.w("HomeActivity", "tagCategories is empty, hiding filter bar");
+            hsvFilters.setVisibility(View.GONE);
+            return;
+        }
+        
+        Log.d("HomeActivity", "Setting up filter UI with " + tagCategories.size() + " categories");
+        
+        int buttonCount = 0;
+        for (Map.Entry<String, List<String>> entry : tagCategories.entrySet()) {
+            String categoryName = entry.getKey();
+            List<String> tags = entry.getValue();
+            
+            if (tags == null || tags.isEmpty()) {
+                Log.w("HomeActivity", "Category " + categoryName + " has no tags");
+                continue;
+            }
+            
+            // 创建分类按钮
+            TextView categoryBtn = new TextView(this);
+            categoryBtn.setText(categoryName + " ▼");
+            categoryBtn.setTextSize(15);
+            categoryBtn.setTextColor(getColor(R.color.primary_blue_gray));
+            categoryBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+            categoryBtn.setPadding(28, 18, 28, 18);
+            categoryBtn.setBackgroundResource(R.drawable.bg_button_secondary);
+            categoryBtn.setGravity(android.view.Gravity.CENTER);
+            categoryBtn.setClickable(true);
+            categoryBtn.setFocusable(true);
+            categoryBtn.setMinHeight(56); // 设置最小高度，使其更明显
+            categoryBtn.setMinWidth(100); // 设置最小宽度
+            // 添加阴影效果（通过elevation）
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                categoryBtn.setElevation(2f);
+            }
+            categoryBtn.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) categoryBtn.getLayoutParams();
+            params.setMargins(0, 0, 16, 0);
+            categoryBtn.setLayoutParams(params);
+            
+            categoryBtn.setOnClickListener(v -> showCategoryFilterDialog(categoryName, tags));
+            llFilters.addView(categoryBtn);
+            buttonCount++;
+            Log.d("HomeActivity", "Added filter button: " + categoryName);
+        }
+        
+        Log.d("HomeActivity", "Total filter buttons added: " + buttonCount);
+        
+        // 确保筛选栏在"推荐"标签页时可见
+        if ("recommend".equals(currentHomeFeedTab)) {
+            hsvFilters.setVisibility(View.VISIBLE);
+            Log.d("HomeActivity", "Filter bar set to VISIBLE, currentHomeFeedTab=" + currentHomeFeedTab);
+        } else {
+            hsvFilters.setVisibility(View.GONE);
+            Log.d("HomeActivity", "Filter bar set to GONE, currentHomeFeedTab=" + currentHomeFeedTab);
+        }
+    }
+    
+    private void showCategoryFilterDialog(String categoryName, List<String> tags) {
+        // 创建多选对话框
+        boolean[] checkedItems = new boolean[tags.size()];
+        Set<String> selected = selectedTags.get(categoryName);
+        
+        // 如果 selected 为空，表示全选（所有项都选中）
+        boolean isAllSelected = selected.isEmpty();
+        for (int i = 0; i < tags.size(); i++) {
+            checkedItems[i] = isAllSelected || selected.contains(tags.get(i));
+        }
+        
+        String[] tagArray = tags.toArray(new String[0]);
+        
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("筛选: " + categoryName);
+        
+        // 使用一个数组来存储选中的状态，以便在对话框关闭后访问
+        final boolean[] finalCheckedItems = checkedItems.clone();
+        
+        builder.setMultiChoiceItems(tagArray, checkedItems, (dialog, which, isChecked) -> {
+            finalCheckedItems[which] = isChecked;
+        });
+        
+        builder.setPositiveButton("确定", (dialog, which) -> {
+            Set<String> newSelected = new HashSet<>();
+            for (int i = 0; i < finalCheckedItems.length; i++) {
+                if (finalCheckedItems[i]) {
+                    newSelected.add(tags.get(i));
+                }
+            }
+            // 如果全部选中，则设置为空集合（表示全选）
+            if (newSelected.size() == tags.size()) {
+                selectedTags.put(categoryName, new HashSet<>());
+            } else {
+                selectedTags.put(categoryName, newSelected);
+            }
+            // 重新加载帖子
+            if (currentHomeFeedTab.equals("recommend")) {
+                loadPosts();
+            }
+        });
+        
+        builder.setNegativeButton("取消", null);
+        builder.setNeutralButton("全选", (dialog, which) -> {
+            // 全选所有项 - 直接设置为全选状态
+            selectedTags.put(categoryName, new HashSet<>());
+            // 重新加载帖子
+            if (currentHomeFeedTab.equals("recommend")) {
+                loadPosts();
+            }
+        });
+        
+        builder.show();
+    }
+
+    private void showSearchDialog() {
+        // 创建搜索对话框
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_search, null);
+        TextInputEditText etSearch = dialogView.findViewById(R.id.etSearch);
+        
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("搜索帖子")
+                .setView(dialogView)
+                .setPositiveButton("搜索", (d, which) -> {
+                    String query = etSearch.getText() != null ? etSearch.getText().toString().trim() : "";
+                    if (!query.isEmpty()) {
+                        searchPosts(query);
+                    } else {
+                        Toast.makeText(this, "请输入搜索关键词", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        
+        dialog.show();
+        
+        // 设置搜索框可以按回车键搜索
+        etSearch.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                String query = etSearch.getText() != null ? etSearch.getText().toString().trim() : "";
+                if (!query.isEmpty()) {
+                    dialog.dismiss();
+                    searchPosts(query);
+                } else {
+                    Toast.makeText(this, "请输入搜索关键词", Toast.LENGTH_SHORT).show();
+                }
+                return true;
+            }
+            return false;
+        });
+        
+        // 自动聚焦并弹出键盘
+        etSearch.requestFocus();
+    }
+
+    private void searchPosts(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            Toast.makeText(this, "请输入搜索关键词", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 更新标题显示搜索关键词
+        tvTitle.setText("搜索结果: " + query);
+        
+        // 调用搜索API
+        ApiClient.getService().searchPosts(
+                query.trim(),
+                1,
+                20,
+                currentUserId > 0 ? currentUserId : null
+        ).enqueue(new Callback<PostListResponse>() {
+            @Override
+            public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    PostListResponse postListResponse = response.body();
+                    if (postListResponse.isOk() && postListResponse.getData() != null) {
+                        List<Post> posts = postListResponse.getData();
+                        postAdapter.setPosts(posts);
+                        if (posts.isEmpty()) {
+                            Toast.makeText(HomeActivity.this, "未找到相关帖子", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(HomeActivity.this, "找到 " + posts.size() + " 条结果", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        Toast.makeText(HomeActivity.this, "搜索失败", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(HomeActivity.this, "搜索失败，请稍后重试", Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<PostListResponse> call, Throwable t) {
+                Toast.makeText(HomeActivity.this, "搜索失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void loadMyPosts() {
@@ -3104,17 +3412,95 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             tvWeatherCity.setText(currentWeatherCity != null ? currentWeatherCity : "--");
         }
         
-        // 可以根据天气图标代码设置图标（这里简化处理，使用默认图标）
-        // 实际可以使用Glide加载和风天气的图标URL
+        // 更新天气图标
         String icon = now.getIcon();
+        Log.d("HomeActivity", "Weather icon code: " + icon);
+        
+        // 确保ImageView可见
+        if (ivWeatherIcon == null) {
+            Log.e("HomeActivity", "ivWeatherIcon is null!");
+            return;
+        }
+        
+        ivWeatherIcon.setVisibility(View.VISIBLE);
+        
         if (icon != null && !icon.isEmpty()) {
-            // 和风天气图标URL格式：https://cdn.heweather.com/cond_icon/{icon}.png
-            String iconUrl = "https://cdn.heweather.com/cond_icon/" + icon + ".png";
+            // 尝试多种和风天气图标URL格式
+            // 格式1: https://a.hecdn.net/img/common/icon/202306d/{icon}.png (新版本)
+            // 格式2: https://cdn.heweather.com/cond_icon/{icon}.png (旧版本)
+            // 格式3: https://devapi.qweather.com/v7/weather/icon?icon={icon} (API格式)
+            
+            String iconUrl1 = "https://a.hecdn.net/img/common/icon/202306d/" + icon + ".png";
+            String iconUrl2 = "https://cdn.heweather.com/cond_icon/" + icon + ".png";
+            String iconUrl3 = "https://devapi.qweather.com/v7/weather/icon?icon=" + icon;
+            
+            Log.d("HomeActivity", "Loading weather icon from: " + iconUrl1);
+            
             Glide.with(this)
-                    .load(iconUrl)
+                    .load(iconUrl1)
                     .placeholder(android.R.drawable.ic_menu_view)
                     .error(android.R.drawable.ic_menu_view)
+                    .listener(new RequestListener<Drawable>() {
+                        @Override
+                        public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
+                            if (e != null) {
+                                Log.e("HomeActivity", "Failed to load weather icon from URL1: " + iconUrl1 + ", error: " + e.getMessage());
+                            }
+                            // 如果第一个URL失败，尝试第二个URL
+                            if (isFirstResource) {
+                                Log.d("HomeActivity", "Trying fallback URL2: " + iconUrl2);
+                                new Handler(Looper.getMainLooper()).post(() -> {
+                                    if (ivWeatherIcon != null) {
+                                        Glide.with(HomeActivity.this)
+                                                .load(iconUrl2)
+                                                .placeholder(android.R.drawable.ic_menu_view)
+                                                .error(android.R.drawable.ic_menu_view)
+                                                .listener(new RequestListener<Drawable>() {
+                                                    @Override
+                                                    public boolean onLoadFailed(@Nullable GlideException e, Object model, Target<Drawable> target, boolean isFirstResource) {
+                                                        if (e != null) {
+                                                            Log.e("HomeActivity", "Failed to load weather icon from URL2: " + iconUrl2 + ", error: " + e.getMessage());
+                                                        }
+                                                        // 如果第二个URL也失败，尝试第三个URL
+                                                        if (isFirstResource) {
+                                                            Log.d("HomeActivity", "Trying fallback URL3: " + iconUrl3);
+                                                            new Handler(Looper.getMainLooper()).post(() -> {
+                                                                if (ivWeatherIcon != null) {
+                                                                    Glide.with(HomeActivity.this)
+                                                                            .load(iconUrl3)
+                                                                            .placeholder(android.R.drawable.ic_menu_view)
+                                                                            .error(android.R.drawable.ic_menu_view)
+                                                                            .into(ivWeatherIcon);
+                                                                }
+                                                            });
+                                                        }
+                                                        return false;
+                                                    }
+
+                                                    @Override
+                                                    public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                                                        Log.d("HomeActivity", "Weather icon loaded successfully from URL2");
+                                                        return false;
+                                                    }
+                                                })
+                                                .into(ivWeatherIcon);
+                                    }
+                                });
+                            }
+                            return false;
+                        }
+
+                        @Override
+                        public boolean onResourceReady(Drawable resource, Object model, Target<Drawable> target, DataSource dataSource, boolean isFirstResource) {
+                            Log.d("HomeActivity", "Weather icon loaded successfully from URL1");
+                            return false;
+                        }
+                    })
                     .into(ivWeatherIcon);
+        } else {
+            Log.w("HomeActivity", "Weather icon code is null or empty, using default icon");
+            // 如果icon为空，显示默认图标
+            ivWeatherIcon.setImageResource(android.R.drawable.ic_menu_view);
         }
     }
 
