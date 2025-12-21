@@ -29,5 +29,16 @@ public interface WeatherApiService {
     Call<CityLookupResponse> lookupCity(
             @Query("location") String location
     );
+    
+    /**
+     * 城市搜索（根据城市名称搜索城市）
+     * @param location 城市名称，例如：北京、上海、beijing
+     * @return 城市查询响应
+     * 注意：API Key 通过 URL 查询参数 ?key=xxx 自动添加（由拦截器处理）
+     */
+    @GET("geo/v2/city/lookup")
+    Call<CityLookupResponse> searchCity(
+            @Query("location") String location
+    );
 }
 

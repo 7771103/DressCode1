@@ -31,7 +31,9 @@ import java.io.File;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -1396,6 +1398,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             intent.putExtra(FollowListActivity.EXTRA_LIST_TYPE, "following");
             startActivity(intent);
         });
+        
+        // 天气区域点击事件在initWeather中设置
     }
 
     private void setupChatActions() {
@@ -3597,37 +3601,91 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 new ActivityResultContracts.RequestPermission(),
                 isGranted -> {
                     if (isGranted) {
-                        getCurrentLocationAndWeather();
+                        // 如果用户选择使用定位，则获取当前位置
+                        if (userPrefs.isUsingLocation()) {
+                            getCurrentLocationAndWeather();
+                        } else {
+                            // 否则使用保存的城市
+                            String savedCityId = userPrefs.getSelectedCityId();
+                            if (savedCityId != null) {
+                                fetchWeather(savedCityId);
+                            } else {
+                                fetchWeather("101010100"); // 默认北京
+                            }
+                        }
                     } else {
-                        // 如果没有位置权限，使用默认城市（北京）
-                        fetchWeather("101010100"); // 北京城市ID
+                        // 如果没有位置权限，检查是否有保存的城市
+                        String savedCityId = userPrefs.getSelectedCityId();
+                        if (savedCityId != null) {
+                            fetchWeather(savedCityId);
+                        } else {
+                            // 使用默认城市（北京）
+                            fetchWeather("101010100"); // 北京城市ID
+                        }
                     }
                 }
         );
         
-        // 检查位置权限
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
-                == PackageManager.PERMISSION_GRANTED) {
-            getCurrentLocationAndWeather();
+        // 检查是否有保存的城市选择
+        if (!userPrefs.isUsingLocation()) {
+            String savedCityId = userPrefs.getSelectedCityId();
+            String savedCityName = userPrefs.getSelectedCityName();
+            if (savedCityId != null) {
+                currentWeatherCity = savedCityName != null ? savedCityName : "--";
+                fetchWeather(savedCityId);
+            } else {
+                // 如果没有保存的城市，使用定位
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                        == PackageManager.PERMISSION_GRANTED) {
+                    getCurrentLocationAndWeather();
+                } else {
+                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+                }
+            }
         } else {
-            // 请求位置权限
-            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+            // 使用定位
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                    == PackageManager.PERMISSION_GRANTED) {
+                getCurrentLocationAndWeather();
+            } else {
+                // 请求位置权限
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+            }
         }
         
         // 设置定时更新天气
         weatherUpdateRunnable = new Runnable() {
             @Override
             public void run() {
-                if (ContextCompat.checkSelfPermission(HomeActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) 
-                        == PackageManager.PERMISSION_GRANTED) {
-                    getCurrentLocationAndWeather();
+                if (userPrefs.isUsingLocation()) {
+                    if (ContextCompat.checkSelfPermission(HomeActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                            == PackageManager.PERMISSION_GRANTED) {
+                        getCurrentLocationAndWeather();
+                    } else {
+                        String savedCityId = userPrefs.getSelectedCityId();
+                        if (savedCityId != null) {
+                            fetchWeather(savedCityId);
+                        } else {
+                            fetchWeather("101010100"); // 默认北京
+                        }
+                    }
                 } else {
-                    fetchWeather("101010100"); // 默认北京
+                    String savedCityId = userPrefs.getSelectedCityId();
+                    if (savedCityId != null) {
+                        fetchWeather(savedCityId);
+                    } else {
+                        fetchWeather("101010100"); // 默认北京
+                    }
                 }
                 weatherHandler.postDelayed(this, WEATHER_UPDATE_INTERVAL);
             }
         };
         weatherHandler.postDelayed(weatherUpdateRunnable, WEATHER_UPDATE_INTERVAL);
+        
+        // 添加天气区域点击事件，弹出城市选择对话框
+        if (llWeather != null) {
+            llWeather.setOnClickListener(v -> showCitySelectionDialog());
+        }
     }
 
     private void getCurrentLocationAndWeather() {
@@ -3760,12 +3818,12 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     }
 
     private void fetchWeather(String location) {
-        // 根据城市ID或名称设置前端展示的城市
-        if ("101010100".equals(location)) {
-            currentWeatherCity = "北京";
-        } else {
-            // 其他情况直接显示 location（如果你传的是城市名，可以直接显示）
-            currentWeatherCity = location;
+        // 不再覆盖 currentWeatherCity，因为城市名称应该在调用此方法之前就已经设置好了
+        // 只有在 currentWeatherCity 未设置且是默认北京时才设置
+        if (currentWeatherCity == null || currentWeatherCity.equals("--")) {
+            if ("101010100".equals(location)) {
+                currentWeatherCity = "北京";
+            }
         }
         fetchWeather(location, false);
     }
@@ -3836,6 +3894,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             return;
         }
         
+        // 保存旧的天气信息，用于判断是否需要刷新推荐
+        String oldTemp = currentWeatherTemp;
+        String oldText = currentWeatherText;
+        
         // 更新温度
         String temp = now.getTemp();
         if (temp != null && !temp.isEmpty()) {
@@ -3859,6 +3921,17 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         // 更新城市名称显示
         if (tvWeatherCity != null) {
             tvWeatherCity.setText(currentWeatherCity != null ? currentWeatherCity : "--");
+        }
+        
+        // 如果天气信息发生变化，且当前在推荐页面，刷新推荐内容
+        boolean weatherChanged = !java.util.Objects.equals(oldTemp, currentWeatherTemp) || 
+                                 !java.util.Objects.equals(oldText, currentWeatherText);
+        if (weatherChanged && currentTab != null && currentTab.equals("home") && 
+            currentHomeFeedTab != null && currentHomeFeedTab.equals("recommend")) {
+            // 延迟刷新，避免频繁刷新
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                refreshRecommendations();
+            }, 500);
         }
         
         // 更新天气图标
@@ -3955,6 +4028,236 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             Log.w("HomeActivity", "Weather icon code is null or empty, using default icon");
             // 如果icon为空，显示默认图标
             ivWeatherIcon.setImageResource(android.R.drawable.ic_menu_view);
+        }
+    }
+
+    /**
+     * 显示城市选择对话框
+     */
+    private void showCitySelectionDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_city_selection, null);
+        TextInputEditText etCitySearch = dialogView.findViewById(R.id.etCitySearch);
+        RecyclerView rvCityList = dialogView.findViewById(R.id.rvCityList);
+        ProgressBar progressBar = dialogView.findViewById(R.id.progressBar);
+        TextView tvEmpty = dialogView.findViewById(R.id.tvEmpty);
+        
+        // 城市列表适配器
+        List<CityLookupResponse.Location> cityList = new ArrayList<>();
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("选择城市")
+                .setView(dialogView)
+                .setPositiveButton("使用定位", (d, w) -> {
+                    // 切换到使用定位
+                    userPrefs.setUseLocation(true);
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+                            == PackageManager.PERMISSION_GRANTED) {
+                        getCurrentLocationAndWeather();
+                    } else {
+                        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .create();
+        
+        CityListAdapter cityAdapter = new CityListAdapter(cityList, city -> {
+            // 选择城市
+            selectCity(city);
+            dialog.dismiss(); // 关闭对话框
+        });
+        rvCityList.setLayoutManager(new LinearLayoutManager(this));
+        rvCityList.setAdapter(cityAdapter);
+        
+        // 搜索输入框监听
+        etCitySearch.addTextChangedListener(new TextWatcher() {
+            private Handler handler = new Handler(Looper.getMainLooper());
+            private Runnable searchRunnable;
+            
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (searchRunnable != null) {
+                    handler.removeCallbacks(searchRunnable);
+                }
+                
+                String query = s.toString().trim();
+                if (query.length() < 1) {
+                    cityList.clear();
+                    cityAdapter.notifyDataSetChanged();
+                    tvEmpty.setVisibility(View.GONE);
+                    rvCityList.setVisibility(View.GONE);
+                    return;
+                }
+                
+                searchRunnable = () -> searchCity(query, cityList, cityAdapter, progressBar, tvEmpty, rvCityList);
+                handler.postDelayed(searchRunnable, 500); // 延迟500ms搜索，避免频繁请求
+            }
+            
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+        
+        dialog.show();
+    }
+    
+    /**
+     * 搜索城市
+     */
+    private void searchCity(String query, List<CityLookupResponse.Location> cityList, 
+                           CityListAdapter adapter, ProgressBar progressBar, 
+                           TextView tvEmpty, RecyclerView rvCityList) {
+        progressBar.setVisibility(View.VISIBLE);
+        tvEmpty.setVisibility(View.GONE);
+        rvCityList.setVisibility(View.GONE);
+        
+        WeatherApiService weatherService = WeatherApiClient.getService();
+        weatherService.searchCity(query)
+                .enqueue(new retrofit2.Callback<CityLookupResponse>() {
+                    @Override
+                    public void onResponse(retrofit2.Call<CityLookupResponse> call, 
+                                          retrofit2.Response<CityLookupResponse> response) {
+                        progressBar.setVisibility(View.GONE);
+                        if (response.isSuccessful() && response.body() != null) {
+                            CityLookupResponse cityResponse = response.body();
+                            if ("200".equals(cityResponse.getCode()) && 
+                                cityResponse.getLocation() != null && 
+                                !cityResponse.getLocation().isEmpty()) {
+                                cityList.clear();
+                                cityList.addAll(cityResponse.getLocation());
+                                adapter.notifyDataSetChanged();
+                                if (cityList.isEmpty()) {
+                                    tvEmpty.setVisibility(View.VISIBLE);
+                                    rvCityList.setVisibility(View.GONE);
+                                } else {
+                                    tvEmpty.setVisibility(View.GONE);
+                                    rvCityList.setVisibility(View.VISIBLE);
+                                }
+                            } else {
+                                cityList.clear();
+                                adapter.notifyDataSetChanged();
+                                tvEmpty.setVisibility(View.VISIBLE);
+                                rvCityList.setVisibility(View.GONE);
+                            }
+                        } else {
+                            cityList.clear();
+                            adapter.notifyDataSetChanged();
+                            tvEmpty.setVisibility(View.VISIBLE);
+                            rvCityList.setVisibility(View.GONE);
+                        }
+                    }
+                    
+                    @Override
+                    public void onFailure(retrofit2.Call<CityLookupResponse> call, Throwable t) {
+                        progressBar.setVisibility(View.GONE);
+                        cityList.clear();
+                        adapter.notifyDataSetChanged();
+                        tvEmpty.setVisibility(View.VISIBLE);
+                        rvCityList.setVisibility(View.GONE);
+                        Log.e("HomeActivity", "搜索城市失败", t);
+                    }
+                });
+    }
+    
+    /**
+     * 选择城市并更新天气
+     */
+    private void selectCity(CityLookupResponse.Location city) {
+        String cityId = city.getId();
+        String cityName = city.getAdm2();
+        if (cityName == null || cityName.isEmpty()) {
+            cityName = city.getName();
+        }
+        if (cityName == null || cityName.isEmpty()) {
+            cityName = "未知城市";
+        }
+        
+        // 保存选择的城市
+        userPrefs.saveSelectedCity(cityId, cityName);
+        userPrefs.setUseLocation(false);
+        
+        // 更新当前城市显示
+        currentWeatherCity = cityName;
+        
+        // 获取该城市的天气
+        fetchWeather(cityId);
+        
+        // 刷新推荐内容
+        refreshRecommendations();
+        
+        Toast.makeText(this, "已切换到: " + cityName, Toast.LENGTH_SHORT).show();
+    }
+    
+    /**
+     * 刷新推荐内容
+     */
+    private void refreshRecommendations() {
+        // 如果当前在推荐页面，刷新帖子列表
+        if (currentTab.equals("home") && currentHomeFeedTab.equals("recommend")) {
+            loadPosts();
+        }
+    }
+    
+    /**
+     * 城市列表适配器
+     */
+    private static class CityListAdapter extends RecyclerView.Adapter<CityListAdapter.ViewHolder> {
+        private List<CityLookupResponse.Location> cities;
+        private OnCityClickListener listener;
+        
+        interface OnCityClickListener {
+            void onCityClick(CityLookupResponse.Location city);
+        }
+        
+        CityListAdapter(List<CityLookupResponse.Location> cities, OnCityClickListener listener) {
+            this.cities = cities;
+            this.listener = listener;
+        }
+        
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext())
+                    .inflate(android.R.layout.simple_list_item_2, parent, false);
+            return new ViewHolder(view);
+        }
+        
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            CityLookupResponse.Location city = cities.get(position);
+            String cityName = city.getAdm2();
+            if (cityName == null || cityName.isEmpty()) {
+                cityName = city.getName();
+            }
+            String provinceName = city.getAdm1();
+            String displayText = cityName;
+            if (provinceName != null && !provinceName.isEmpty() && !provinceName.equals(cityName)) {
+                displayText = provinceName + " " + cityName;
+            }
+            holder.text1.setText(displayText);
+            holder.text2.setText(city.getCountry());
+            
+            holder.itemView.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onCityClick(city);
+                }
+            });
+        }
+        
+        @Override
+        public int getItemCount() {
+            return cities.size();
+        }
+        
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            TextView text1;
+            TextView text2;
+            
+            ViewHolder(View itemView) {
+                super(itemView);
+                text1 = itemView.findViewById(android.R.id.text1);
+                text2 = itemView.findViewById(android.R.id.text2);
+            }
         }
     }
 
