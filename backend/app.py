@@ -271,87 +271,6 @@ def create_app():
         # 如果没有匹配的年龄组，返回False
         return False
     
-    def match_hobby(user_hobby, post_tags, all_tags=None):
-        """
-        根据用户个人爱好简介匹配帖子的标签（模糊匹配）
-        
-        匹配逻辑：
-        1. 检查标签名称是否在用户爱好文本中出现（模糊匹配，双向匹配）
-        2. 如果用户爱好中没有匹配到任何标签，则匹配所有帖子（保持向后兼容）
-        3. 如果帖子没有标签，则匹配（保持向后兼容）
-        4. 只使用数据库中实际存在的标签进行匹配
-        
-        Args:
-            user_hobby: 用户个人爱好简介（字符串）
-            post_tags: 帖子的标签列表（标签名称字符串列表）
-            all_tags: 数据库中所有标签的列表（可选，如果不提供则从数据库查询）
-        
-        Returns:
-            True表示匹配，False表示不匹配
-        """
-        # 向后兼容：如果用户没有设置个人爱好，则匹配所有帖子
-        if not user_hobby or not user_hobby.strip():
-            return True
-        
-        # 向后兼容：如果帖子没有标签，则匹配
-        if not post_tags or len(post_tags) == 0:
-            return True
-        
-        # 获取数据库中所有实际存在的标签（只使用数据库中的标签）
-        if all_tags is None:
-            all_tags = Tag.query.all()
-            all_tag_names = [tag.name for tag in all_tags]
-        else:
-            all_tag_names = all_tags if isinstance(all_tags, list) else [tag.name for tag in all_tags]
-        
-        # 如果数据库中没有标签，则匹配所有帖子
-        if not all_tag_names:
-            return True
-        
-        user_hobby_lower = user_hobby.lower().strip()
-        
-        # 模糊匹配：检查标签名称是否在用户爱好文本中出现（双向匹配）
-        # 双向匹配：标签名称在用户爱好中，或者用户爱好的关键词在标签名称中
-        matched_tags = []
-        for tag_name in all_tag_names:
-            tag_name_lower = tag_name.lower().strip()
-            
-            # 双向模糊匹配：
-            # 1. 标签名称是否在用户爱好文本中出现（主要匹配方式）
-            #    例如：用户爱好"我喜欢红色和蓝色"匹配标签"红色"、"蓝色"
-            # 2. 用户爱好中的关键词是否在标签名称中出现（辅助匹配，用于短爱好）
-            #    例如：用户爱好"红色"匹配标签"红色连衣裙"
-            if tag_name_lower in user_hobby_lower:
-                # 标签名称在用户爱好中，直接匹配
-                matched_tags.append(tag_name)
-            elif len(user_hobby_lower) <= 20 and user_hobby_lower in tag_name_lower:
-                # 如果用户爱好很短（<=20字符），且用户爱好在标签名称中，也匹配
-                # 例如：用户爱好"红色"匹配标签"红色连衣裙"
-                matched_tags.append(tag_name)
-        
-        # 向后兼容：如果用户爱好中没有匹配到任何标签，则匹配所有帖子
-        if not matched_tags:
-            return True
-        
-        # 检查帖子标签是否在匹配的标签列表中（模糊匹配）
-        for post_tag in post_tags:
-            post_tag_lower = post_tag.lower().strip()
-            # 精确匹配：帖子标签是否在匹配的标签列表中
-            if post_tag in matched_tags:
-                return True
-            # 模糊匹配：帖子标签是否与匹配的标签有交集（处理标签名称的变体）
-            for matched_tag in matched_tags:
-                matched_tag_lower = matched_tag.lower().strip()
-                # 如果帖子标签包含匹配的标签，或者匹配的标签包含帖子标签，也认为匹配
-                # 例如：帖子标签"红色连衣裙"匹配用户爱好中的"红色"
-                if len(matched_tag_lower) >= 2 and matched_tag_lower in post_tag_lower:
-                    return True
-                if len(post_tag_lower) >= 2 and post_tag_lower in matched_tag_lower:
-                    return True
-        
-        # 如果帖子标签都不匹配，返回False
-        return False
-    
     def identify_item_type(image_path):
         """
         识别物品类型：从标签中读取，判断是配饰（试戴）还是服装（换装）
@@ -655,7 +574,6 @@ def create_app():
         avatar = db.Column(db.String(255))
         age = db.Column(db.Integer)
         gender = db.Column(db.String(10))
-        hobby = db.Column(db.Text)  # 个人爱好简介
 
     class Post(db.Model):
         __tablename__ = "posts"
@@ -931,10 +849,9 @@ def create_app():
         temperature = request.args.get("temperature", type=str)  # 温度，如 "25"
         weather_text = request.args.get("weather_text", type=str)  # 天气描述，如 "晴"、"雨"等
 
-        # 获取当前用户的性别、年龄和个人爱好（如果已登录）
+        # 获取当前用户的性别和年龄（如果已登录）
         user_gender = None
         user_age = None
-        user_hobby = None
         if current_user_id > 0:
             current_user = User.query.get(current_user_id)
             if current_user:
@@ -942,8 +859,6 @@ def create_app():
                     user_gender = current_user.gender
                 if current_user.age:
                     user_age = current_user.age
-                if current_user.hobby:
-                    user_hobby = current_user.hobby
 
         query = Post.query
         
@@ -979,19 +894,14 @@ def create_app():
         # 先获取所有帖子
         all_posts = query.all()
         
-        # 综合推荐过滤：根据性别、天气、年龄、个人爱好进行推荐
+        # 综合推荐过滤：根据性别、天气、年龄进行推荐
         fully_matched_posts = []  # 完全匹配的推荐帖子（满足所有条件）
         partially_matched_posts = []  # 部分匹配的帖子（满足部分条件）
         unmatched_posts = []  # 完全不匹配的帖子
         labels = load_image_labels()
         
         # 检查是否有任何推荐条件
-        has_recommendation_conditions = user_gender or temperature or weather_text or user_age or user_hobby
-        
-        # 如果需要进行个人爱好匹配，提前获取所有标签（避免在循环中重复查询）
-        all_tags_for_hobby = None
-        if user_hobby:
-            all_tags_for_hobby = [tag.name for tag in Tag.query.all()]
+        has_recommendation_conditions = user_gender or temperature or weather_text or user_age
         
         for post in all_posts:
             # 1. 性别匹配
@@ -1014,14 +924,6 @@ def create_app():
                 post_age_groups = get_post_age_groups(post.image_path)
                 age_match = match_age_group(user_age, post_age_groups)
             
-            # 4. 个人爱好匹配
-            hobby_match = True
-            if user_hobby:
-                # 获取帖子的标签
-                post_tags = PostTag.query.filter_by(post_id=post.id).all()
-                tags = [post_tag.tag.name for post_tag in post_tags]
-                hobby_match = match_hobby(user_hobby, tags, all_tags_for_hobby)
-            
             # 分类帖子：根据匹配程度分类
             if has_recommendation_conditions:
                 # 计算匹配的条件数量
@@ -1032,11 +934,9 @@ def create_app():
                     match_count += 1
                 if age_match:
                     match_count += 1
-                if hobby_match:
-                    match_count += 1
                 
                 # 根据匹配程度分类
-                if gender_match and weather_match and age_match and hobby_match:
+                if gender_match and weather_match and age_match:
                     # 完全匹配所有条件
                     fully_matched_posts.append(post)
                 elif match_count > 0:
@@ -1580,7 +1480,6 @@ def create_app():
                     "avatar": user.avatar,
                     "age": user.age,
                     "gender": user.gender,
-                    "hobby": user.hobby,
                     "postCount": post_count,
                     "likeCount": like_count,
                     "collectCount": collect_count,
@@ -1774,11 +1673,6 @@ def create_app():
             if gender and gender not in ["男", "女", "其他"]:
                 return jsonify({"ok": False, "msg": "性别只能是：男、女、其他"}), 400
             user.gender = gender
-        
-        # 更新个人爱好简介
-        if "hobby" in data:
-            hobby = (data.get("hobby") or "").strip() or None
-            user.hobby = hobby
         
         db.session.commit()
         

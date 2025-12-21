@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS `users` (
   `avatar` VARCHAR(255) DEFAULT NULL,
   `age` INT DEFAULT NULL,
   `gender` VARCHAR(10) DEFAULT NULL,
-  `hobby` TEXT DEFAULT NULL COMMENT '个人爱好简介',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_users_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

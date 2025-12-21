@@ -159,27 +159,6 @@
                         android:text="其他"
                         android:textColor="@color/text_primary_dark" />
                 </RadioGroup>
-
-                <!-- 个人爱好简介 -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="个人爱好简介"
-                    app:boxBackgroundMode="outline"
-                    app:boxStrokeColor="@color/primary_blue_gray"
-                    android:layout_marginTop="16dp">
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etHobby"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="100dp"
-                        android:inputType="textMultiLine|textCapSentences"
-                        android:maxLines="5"
-                        android:gravity="top|start"
-                        android:textColor="@color/text_primary_dark"
-                        android:textColorHint="@color/text_tertiary"
-                        android:hint="例如：喜欢休闲风格的服装，平时比较喜欢正式场合穿搭，偏好简约风格" />
-                </com.google.android.material.textfield.TextInputLayout>
             </LinearLayout>
 
             <!-- 修改密码 -->
