@@ -2178,20 +2178,22 @@ def create_app():
             # 根据物品类型生成不同的prompt
             # 添加安全约束词汇以减少触发敏感内容检测
             safety_constraints = "，appropriate，professional，suitable for work"
+            # 添加人物数量约束，避免生成重复人物
+            person_constraints = "，单个人物，不要重复人物，不要生成多个相同的人物，保持原图中的人物数量不变"
             if item_type == "wear":
                 # 试戴配饰（如墨镜、帽子、项链、包等）
                 # 重要：明确说明只添加配饰，不要改变服装，并且要使用参考图片中的颜色和样式
                 if item_description:
-                    prompt = f"在人物身上添加参考图片中的{item_description}，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{safety_constraints}"
+                    prompt = f"在人物身上添加参考图片中的{item_description}，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{person_constraints}{safety_constraints}"
                 else:
-                    prompt = f"在人物身上添加参考图片中的配饰，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{safety_constraints}"
+                    prompt = f"在人物身上添加参考图片中的配饰，这是配饰不是服装。严格按照参考图片中的颜色、样式和材质来添加配饰，不要改变颜色。仅添加配饰，绝对不要改变人物的服装、脸部、姿势和背景，保持原样，写实风格，高质量，自然贴合{person_constraints}{safety_constraints}"
                 strength = 0.3  # 试戴配饰时，改动幅度很小，只添加配饰不改变服装
             else:
                 # 换装（默认）
                 if item_description:
-                    prompt = f"将人物的服装替换为参考图片中的{item_description}，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{safety_constraints}"
+                    prompt = f"将人物的服装替换为参考图片中的{item_description}，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{person_constraints}{safety_constraints}"
                 else:
-                    prompt = f"将人物的服装替换为参考图片中的服装，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{safety_constraints}"
+                    prompt = f"将人物的服装替换为参考图片中的服装，严格按照参考图片中的颜色、样式和材质来替换，不要改变颜色。保持人物脸部、姿势和背景不变，写实风格，高质量{person_constraints}{safety_constraints}"
                 strength = 0.6  # 换装时，改动幅度较大
             
             # 构建请求体 - 使用图像生成API格式
@@ -2208,6 +2210,11 @@ def create_app():
                 "stream": False,
                 "watermark": True
             }
+            
+            # 添加negative_prompt来明确排除重复人物
+            # 如果API支持negative_prompt参数，使用它来避免生成重复人物
+            negative_prompt = "重复人物，多个相同的人物，重复的人，duplicate person，multiple identical people，repeated figure"
+            payload["negative_prompt"] = negative_prompt
             
             # 如果API支持多图片输入，传入物品图片
             # 注意：根据豆包API的实际文档，可能需要使用不同的参数名
