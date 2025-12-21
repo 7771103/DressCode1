@@ -893,6 +893,81 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 .show();
     }
     
+    private void deleteWardrobeItem(WardrobeItem item, int position) {
+        if (currentUserId <= 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        if (item == null) {
+            return;
+        }
+        
+        // 显示确认对话框
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("删除衣服")
+                .setMessage("确定要从衣橱中删除这件衣服吗？" + 
+                    (item.getSourceType() != null && 
+                     (item.getSourceType().equals("liked_post") || 
+                      item.getSourceType().equals("collected_post") || 
+                      item.getSourceType().equals("liked_and_collected")) 
+                     ? "\n注意：删除后也会取消对应的点赞和收藏。" : ""))
+                .setPositiveButton("删除", (dialog, which) -> {
+                    // 调用删除API
+                    ApiClient.getService().deleteWardrobeItem(item.getId(), currentUserId)
+                            .enqueue(new Callback<BaseResponse>() {
+                                @Override
+                                public void onResponse(Call<BaseResponse> call, Response<BaseResponse> response) {
+                                    if (response.isSuccessful() && response.body() != null) {
+                                        BaseResponse deleteResponse = response.body();
+                                        if (deleteResponse.isOk()) {
+                                            // 删除成功，从列表中移除
+                                            int selectedPos = wardrobeItemAdapter.getSelectedPosition();
+                                            wardrobeItemAdapter.removeItem(position);
+                                            
+                                            // 如果删除的是选中的衣服，清除选中状态
+                                            if (position == selectedPos) {
+                                                selectedWardrobeItem = null;
+                                                wardrobeItemAdapter.setSelectedPosition(-1);
+                                                btnConfirmTryOn.setVisibility(View.GONE);
+                                            } else if (position < selectedPos) {
+                                                // 如果删除的衣服在选中衣服之前，需要调整选中位置
+                                                wardrobeItemAdapter.setSelectedPosition(selectedPos - 1);
+                                                // 更新选中的item
+                                                selectedWardrobeItem = wardrobeItemAdapter.getSelectedItem();
+                                            }
+                                            
+                                            Toast.makeText(HomeActivity.this, "已删除", Toast.LENGTH_SHORT).show();
+                                            
+                                            // 如果是从点赞或收藏来的，刷新相关数据
+                                            String sourceType = item.getSourceType();
+                                            if (sourceType != null && 
+                                                (sourceType.equals("liked_post") || 
+                                                 sourceType.equals("collected_post") || 
+                                                 sourceType.equals("liked_and_collected"))) {
+                                                // 刷新用户信息（更新点赞和收藏数）
+                                                loadUserInfo();
+                                            }
+                                        } else {
+                                            String errorMsg = deleteResponse.getMsg() != null ? deleteResponse.getMsg() : "删除失败";
+                                            Toast.makeText(HomeActivity.this, errorMsg, Toast.LENGTH_SHORT).show();
+                                        }
+                                    } else {
+                                        Toast.makeText(HomeActivity.this, "删除失败，请稍后重试", Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+
+                                @Override
+                                public void onFailure(Call<BaseResponse> call, Throwable t) {
+                                    Log.e("HomeActivity", "删除衣橱物品失败", t);
+                                    Toast.makeText(HomeActivity.this, "删除失败：" + t.getMessage(), Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+    
     private void uploadUserPhoto(Uri imageUri) {
         if (currentUserId <= 0) {
             Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
@@ -1123,6 +1198,10 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 showAddImageDialog();
             }
         );
+        // 设置删除按钮回调
+        wardrobeItemAdapter.setDeleteButtonListener((item, position) -> {
+            deleteWardrobeItem(item, position);
+        });
         LinearLayoutManager wardrobeLayoutManager = new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false);
         rvWardrobeItems.setLayoutManager(wardrobeLayoutManager);
         rvWardrobeItems.setAdapter(wardrobeItemAdapter);

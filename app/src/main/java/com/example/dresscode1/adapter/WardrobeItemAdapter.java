@@ -25,6 +25,7 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
     private List<WardrobeItem> items = new ArrayList<>();
     private OnItemClickListener listener;
     private OnAddButtonClickListener addButtonListener;
+    private OnDeleteButtonClickListener deleteButtonListener;
     private int selectedPosition = -1;
 
     public interface OnItemClickListener {
@@ -35,9 +36,17 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         void onAddButtonClick();
     }
 
+    public interface OnDeleteButtonClickListener {
+        void onDeleteButtonClick(WardrobeItem item, int position);
+    }
+
     public WardrobeItemAdapter(OnItemClickListener listener, OnAddButtonClickListener addButtonListener) {
         this.listener = listener;
         this.addButtonListener = addButtonListener;
+    }
+
+    public void setDeleteButtonListener(OnDeleteButtonClickListener deleteButtonListener) {
+        this.deleteButtonListener = deleteButtonListener;
     }
 
     public void setSelectedPosition(int position) {
@@ -59,9 +68,25 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         return null;
     }
 
+    public int getSelectedPosition() {
+        return selectedPosition;
+    }
+
     public void setItems(List<WardrobeItem> items) {
         this.items = items != null ? items : new ArrayList<>();
         notifyDataSetChanged();
+    }
+
+    public void removeItem(int position) {
+        if (position >= 0 && position < items.size()) {
+            items.remove(position);
+            // 注意：RecyclerView中的位置是 position + 1（因为第一个是加号按钮）
+            notifyItemRemoved(position + 1);
+            // 通知后续项目位置变化
+            if (position < items.size()) {
+                notifyItemRangeChanged(position + 1, items.size() - position);
+            }
+        }
     }
 
     public void addItem(WardrobeItem item) {
@@ -261,6 +286,7 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
         private TextView tvSourceType;
         private View selectedIndicator;
         private ImageView ivCheckMark;
+        private ImageView ivDeleteButton;
         private androidx.cardview.widget.CardView cardView;
 
         public ItemViewHolder(@NonNull View itemView) {
@@ -269,6 +295,7 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
             tvSourceType = itemView.findViewById(R.id.tvSourceType);
             selectedIndicator = itemView.findViewById(R.id.selectedIndicator);
             ivCheckMark = itemView.findViewById(R.id.ivCheckMark);
+            ivDeleteButton = itemView.findViewById(R.id.ivDeleteButton);
             cardView = itemView.findViewById(R.id.cardView);
         }
 
@@ -339,6 +366,19 @@ public class WardrobeItemAdapter extends RecyclerView.Adapter<RecyclerView.ViewH
                     listener.onItemClick(item, position);
                 }
             });
+
+            // 删除按钮点击事件
+            if (ivDeleteButton != null) {
+                ivDeleteButton.setOnClickListener(v -> {
+                    // 阻止事件冒泡到itemView
+                    v.setClickable(false);
+                    if (deleteButtonListener != null) {
+                        deleteButtonListener.onDeleteButtonClick(item, position);
+                    }
+                    // 恢复点击状态
+                    v.post(() -> v.setClickable(true));
+                });
+            }
         }
     }
 }

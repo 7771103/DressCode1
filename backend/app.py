@@ -2728,6 +2728,59 @@ def create_app():
             db.session.rollback()
             return jsonify({"ok": False, "msg": f"添加失败: {str(e)}"}), 500
 
+    # 删除衣橱图片
+    @app.route("/api/wardrobe/items/<int:item_id>", methods=["DELETE"])
+    def delete_wardrobe_item(item_id):
+        """删除衣橱图片，如果来自点赞或收藏，同时取消对应的点赞和收藏"""
+        user_id = request.args.get("user_id", type=int)
+        if not user_id:
+            data = request.get_json(silent=True) or {}
+            user_id = data.get("user_id")
+        
+        if not user_id:
+            return jsonify({"ok": False, "msg": "需要登录"}), 401
+        
+        try:
+            # 查找衣橱物品
+            wardrobe_item = WardrobeItem.query.get(item_id)
+            if not wardrobe_item:
+                return jsonify({"ok": False, "msg": "衣橱物品不存在"}), 404
+            
+            # 检查是否是物品所有者
+            if wardrobe_item.user_id != user_id:
+                return jsonify({"ok": False, "msg": "只能删除自己的衣橱物品"}), 403
+            
+            # 获取source_type和post_id
+            source_type = wardrobe_item.source_type
+            post_id = wardrobe_item.post_id
+            
+            # 如果来自点赞或收藏，需要取消对应的点赞和收藏
+            if source_type in ["liked_post", "collected_post", "liked_and_collected"] and post_id:
+                post = Post.query.get(post_id)
+                if post:
+                    # 取消点赞
+                    if source_type in ["liked_post", "liked_and_collected"]:
+                        like = Like.query.filter_by(user_id=user_id, post_id=post_id).first()
+                        if like:
+                            db.session.delete(like)
+                            post.like_count = max(0, post.like_count - 1)
+                    
+                    # 取消收藏
+                    if source_type in ["collected_post", "liked_and_collected"]:
+                        collection = Collection.query.filter_by(user_id=user_id, post_id=post_id).first()
+                        if collection:
+                            db.session.delete(collection)
+                            post.collect_count = max(0, post.collect_count - 1)
+            
+            # 删除衣橱物品
+            db.session.delete(wardrobe_item)
+            db.session.commit()
+            
+            return jsonify({"ok": True, "msg": "删除成功"}), 200
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"ok": False, "msg": f"删除失败: {str(e)}"}), 500
+
     # 同步点赞和收藏的帖子到衣橱
     @app.route("/api/wardrobe/sync", methods=["POST"])
     def sync_wardrobe_from_posts():

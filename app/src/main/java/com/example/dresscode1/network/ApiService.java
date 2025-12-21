@@ -255,6 +255,13 @@ public interface ApiService {
     @POST("/api/wardrobe/sync")
     Call<BaseResponse> syncWardrobeFromPosts(@Body LikeRequest request);
 
+    // 删除衣橱物品
+    @DELETE("/api/wardrobe/items/{itemId}")
+    Call<BaseResponse> deleteWardrobeItem(
+            @Path("itemId") int itemId,
+            @Query("user_id") int userId
+    );
+
     // 上传用户照片
     @Multipart
     @POST("/api/user/{userId}/photos")
