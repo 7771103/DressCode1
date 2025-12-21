@@ -249,6 +249,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private boolean isLoadingHomePosts = false;
     private boolean hasMoreHomePosts = true;
     
+    // 关注页面帖子列表分页相关变量
+    private int followingPostsPage = 1;
+    private boolean isLoadingFollowingPosts = false;
+    private boolean hasMoreFollowingPosts = true;
+    
     private ActivityResultLauncher<Intent> editProfileLauncher;
     private ActivityResultLauncher<Intent> imagePickerLauncher;
     private ActivityResultLauncher<String> permissionLauncher;
@@ -1286,9 +1291,21 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 int firstVisibleItemPosition = firstVisibleItemPositions.length > 0 ? firstVisibleItemPositions[0] : 0;
                 
                 // 当滚动到接近底部时（剩余3个item时）加载更多
-                if (!isLoadingHomePosts && hasMoreHomePosts && currentTab.equals("home")) {
-                    if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 3) {
-                        loadMoreHomePosts();
+                if (currentTab.equals("home")) {
+                    if (currentHomeFeedTab.equals("follow")) {
+                        // 关注页面
+                        if (!isLoadingFollowingPosts && hasMoreFollowingPosts) {
+                            if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 3) {
+                                loadMoreFollowingPosts();
+                            }
+                        }
+                    } else {
+                        // 推荐页面
+                        if (!isLoadingHomePosts && hasMoreHomePosts) {
+                            if ((visibleItemCount + firstVisibleItemPosition) >= totalItemCount - 3) {
+                                loadMoreHomePosts();
+                            }
+                        }
                     }
                 }
             }
@@ -2672,26 +2689,83 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             Toast.makeText(this, "请先登录后查看关注内容", Toast.LENGTH_SHORT).show();
             return;
         }
+        
+        // 重置分页状态
+        followingPostsPage = 1;
+        hasMoreFollowingPosts = true;
+        isLoadingFollowingPosts = false;
 
-        ApiClient.getService().getFollowingPosts(currentUserId, 1, 20, currentUserId)
+        ApiClient.getService().getFollowingPosts(currentUserId, followingPostsPage, 20, currentUserId)
                 .enqueue(new Callback<PostListResponse>() {
                     @Override
                     public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingFollowingPosts = false;
                         if (response.isSuccessful() && response.body() != null) {
                             PostListResponse postListResponse = response.body();
                             if (postListResponse.isOk() && postListResponse.getData() != null) {
-                                postAdapter.setPosts(postListResponse.getData());
+                                List<Post> posts = postListResponse.getData();
+                                postAdapter.setPosts(posts);
+                                // 如果返回的数据少于20，说明没有更多数据了
+                                if (posts.size() < 20) {
+                                    hasMoreFollowingPosts = false;
+                                }
                             } else {
                                 postAdapter.setPosts(null);
+                                hasMoreFollowingPosts = false;
                             }
                         } else {
                             Toast.makeText(HomeActivity.this, "加载失败，请稍后重试", Toast.LENGTH_SHORT).show();
+                            hasMoreFollowingPosts = false;
                         }
                     }
 
                     @Override
                     public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingFollowingPosts = false;
                         Toast.makeText(HomeActivity.this, "加载失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                        hasMoreFollowingPosts = false;
+                    }
+                });
+    }
+    
+    private void loadMoreFollowingPosts() {
+        if (isLoadingFollowingPosts || !hasMoreFollowingPosts) {
+            return;
+        }
+        isLoadingFollowingPosts = true;
+        followingPostsPage++;
+
+        ApiClient.getService().getFollowingPosts(currentUserId, followingPostsPage, 20, currentUserId)
+                .enqueue(new Callback<PostListResponse>() {
+                    @Override
+                    public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                        isLoadingFollowingPosts = false;
+                        if (response.isSuccessful() && response.body() != null) {
+                            PostListResponse postListResponse = response.body();
+                            if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                List<Post> posts = postListResponse.getData();
+                                if (posts.isEmpty()) {
+                                    hasMoreFollowingPosts = false;
+                                } else {
+                                    postAdapter.appendPosts(posts);
+                                    // 如果返回的数据少于20，说明没有更多数据了
+                                    if (posts.size() < 20) {
+                                        hasMoreFollowingPosts = false;
+                                    }
+                                }
+                            } else {
+                                hasMoreFollowingPosts = false;
+                            }
+                        } else {
+                            hasMoreFollowingPosts = false;
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<PostListResponse> call, Throwable t) {
+                        isLoadingFollowingPosts = false;
+                        Toast.makeText(HomeActivity.this, "加载更多失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                        hasMoreFollowingPosts = false;
                     }
                 });
     }

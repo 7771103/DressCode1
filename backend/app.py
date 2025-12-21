@@ -985,6 +985,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -995,7 +998,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
@@ -1034,9 +1037,8 @@ def create_app():
         query = Post.query.filter(Post.user_id.in_(following_ids))
         now = datetime.utcnow()
         query = query.filter(Post.created_at <= now)
-        query = query.order_by(
-            Post.created_at.desc(), (Post.like_count + Post.collect_count * 2).desc()
-        )
+        # 关注页面只按时间排序，越近发布越靠前
+        query = query.order_by(Post.created_at.desc())
 
         posts = query.paginate(page=page, per_page=page_size, error_out=False)
         current_user_id = request.args.get("current_user_id", type=int) or user_id
@@ -1063,6 +1065,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -1073,7 +1078,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
@@ -1183,6 +1188,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -1193,7 +1201,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
@@ -1249,6 +1257,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -1259,7 +1270,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
@@ -1294,6 +1305,19 @@ def create_app():
             # 取消点赞
             db.session.delete(like)
             post.like_count = max(0, post.like_count - 1)
+            
+            # 处理衣橱物品：如果来自点赞或同时点赞收藏，需要删除或更新
+            wardrobe_item = WardrobeItem.query.filter_by(
+                user_id=user_id, post_id=post_id
+            ).first()
+            if wardrobe_item:
+                if wardrobe_item.source_type == "liked_post":
+                    # 如果只是点赞，删除衣橱物品
+                    db.session.delete(wardrobe_item)
+                elif wardrobe_item.source_type == "liked_and_collected":
+                    # 如果同时点赞和收藏，改为仅收藏
+                    wardrobe_item.source_type = "collected_post"
+            
             db.session.commit()
             return jsonify({"ok": True, "msg": "取消点赞成功", "isLiked": False}), 200
         else:
@@ -1323,6 +1347,19 @@ def create_app():
             # 取消收藏
             db.session.delete(collection)
             post.collect_count = max(0, post.collect_count - 1)
+            
+            # 处理衣橱物品：如果来自收藏或同时点赞收藏，需要删除或更新
+            wardrobe_item = WardrobeItem.query.filter_by(
+                user_id=user_id, post_id=post_id
+            ).first()
+            if wardrobe_item:
+                if wardrobe_item.source_type == "collected_post":
+                    # 如果只是收藏，删除衣橱物品
+                    db.session.delete(wardrobe_item)
+                elif wardrobe_item.source_type == "liked_and_collected":
+                    # 如果同时点赞和收藏，改为仅点赞
+                    wardrobe_item.source_type = "liked_post"
+            
             db.session.commit()
             return jsonify(
                 {"ok": True, "msg": "取消收藏成功", "isCollected": False}
@@ -1494,6 +1531,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -1504,7 +1544,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
@@ -1563,6 +1603,9 @@ def create_app():
             post_tags = PostTag.query.filter_by(post_id=post.id).all()
             tags = [post_tag.tag.name for post_tag in post_tags]
 
+            # 实时查询评论数量
+            actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+
             result.append(
                 {
                     "id": post.id,
@@ -1573,7 +1616,7 @@ def create_app():
                     "content": post.content or "",
                     "tags": tags,
                     "likeCount": post.like_count,
-                    "commentCount": post.comment_count,
+                    "commentCount": actual_comment_count,
                     "collectCount": post.collect_count,
                     "isLiked": is_liked,
                     "isCollected": is_collected,
