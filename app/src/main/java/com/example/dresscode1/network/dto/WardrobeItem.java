@@ -76,9 +76,9 @@ public class WardrobeItem {
         }
         switch (sourceType) {
             case "gallery":
-                return "相册导入";
+                return "相册";
             case "camera":
-                return "相机导入";
+                return "拍照";
             case "post_try":
                 return "从帖子试试";
             case "liked_post":

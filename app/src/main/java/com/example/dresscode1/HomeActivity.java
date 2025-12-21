@@ -25,6 +25,8 @@ import android.content.ContentValues;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.Drawable;
+import android.os.Environment;
+import java.io.File;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
@@ -193,13 +195,14 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
     private WardrobeItem selectedWardrobeItem;  // 选中的衣橱图片
     private String currentResultImageUrl;  // 当前合成结果图片的URL，用于保存到相册
     private ActivityResultLauncher<Intent> wardrobeImagePickerLauncher;
-    private ActivityResultLauncher<Intent> wardrobeCameraLauncher;
+    private ActivityResultLauncher<Uri> wardrobeCameraLauncher;
     private ActivityResultLauncher<Intent> userPhotoImagePickerLauncher;
     private ActivityResultLauncher<Uri> userPhotoCameraLauncher;
     private ActivityResultLauncher<String> wardrobePermissionLauncher;
     private ActivityResultLauncher<String> userPhotoPermissionLauncher;
     private ActivityResultLauncher<String> saveImagePermissionLauncher;
     private Uri userPhotoCameraUri;  // 相机拍照的临时URI
+    private Uri wardrobeCameraUri;  // 衣橱相机拍照的临时URI
     private Bitmap pendingSaveBitmap;  // 待保存的图片（用于权限授予后保存）
     private WardrobeItemAdapter wardrobeItemAdapter;
     private UserPhotoAdapter userPhotoAdapter;
@@ -330,14 +333,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 相机拍照（用于添加到衣橱）
         wardrobeCameraLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                        Uri imageUri = result.getData().getData();
-                        if (imageUri != null) {
-                            // 上传图片并添加到衣橱
-                            uploadImageToWardrobe(imageUri, "camera", null);
-                        }
+                new ActivityResultContracts.TakePicture(),
+                success -> {
+                    if (success && wardrobeCameraUri != null) {
+                        // 上传图片并添加到衣橱
+                        uploadImageToWardrobe(wardrobeCameraUri, "camera", null);
                     }
                 }
         );
@@ -427,20 +427,29 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                             }
                         } else {
                             Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-                            // 使用新的ActivityResult API
                             if (wardrobeImagePickerLauncher != null) {
-                                // 创建一个新的launcher用于添加图片到衣橱
-                                // 这里简化处理，直接使用现有的launcher，但在回调中处理
-                                startActivityForResult(intent, 200);
+                                wardrobeImagePickerLauncher.launch(intent);
                             }
                         }
                     } else if (which == 1) {
                         // 拍照
-                        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                        if (intent.resolveActivity(getPackageManager()) != null) {
-                            startActivityForResult(intent, 201);
-                        } else {
-                            Toast.makeText(this, "无法打开相机", Toast.LENGTH_SHORT).show();
+                        try {
+                            // 创建临时文件用于保存拍照结果
+                            File photoFile = new File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "wardrobe_" + System.currentTimeMillis() + ".jpg");
+                            if (photoFile.getParentFile() != null && !photoFile.getParentFile().exists()) {
+                                photoFile.getParentFile().mkdirs();
+                            }
+                            wardrobeCameraUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", photoFile);
+                            
+                            // 使用 TakePicture contract，直接传递 URI
+                            if (wardrobeCameraLauncher != null) {
+                                wardrobeCameraLauncher.launch(wardrobeCameraUri);
+                            } else {
+                                Toast.makeText(this, "系统错误，请重试", Toast.LENGTH_SHORT).show();
+                            }
+                        } catch (Exception e) {
+                            Log.e("HomeActivity", "创建拍照文件失败", e);
+                            Toast.makeText(this, "无法创建拍照文件", Toast.LENGTH_SHORT).show();
                         }
                     }
                 })

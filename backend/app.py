@@ -316,25 +316,44 @@ def create_app():
         items = label.get("items", [])
         accessories = label.get("accessories", [])
         
-        # 如果标签中没有items和accessories，或者都是空的，使用豆包API识别
+        # 如果标签中没有items和accessories，或者都是空的，尝试使用通义千问API识别
+        # 注意：豆包API只支持images/generations，不支持chat/completions
+        # 因此使用通义千问的chat/completions API进行物品类型识别
         if (not items and not accessories) or (len(items) == 0 and len(accessories) == 0):
-            print(f"[DEBUG] 标签信息不足，使用豆包API识别物品类型...")
+            print(f"[DEBUG] 标签信息不足，尝试使用通义千问API识别物品类型和描述...")
+            print(f"[DEBUG] 图片路径: {image_path}")
+            
+            # 检查是否启用API识别（可以通过环境变量控制）
+            enable_api_recognition = os.environ.get("ENABLE_ITEM_TYPE_RECOGNITION", "true").lower() == "true"
+            
+            if not enable_api_recognition:
+                print(f"[DEBUG] API识别已禁用，使用默认换装模式")
+                return "try_on", "服装"
+            
             try:
-                # 调用豆包API进行物品识别
-                # 使用chat/completions API进行图像识别
-                api_key = os.environ.get("DOUBAO_API_KEY", "").strip()
-                # 注意：图像识别需要使用chat/completions API，而不是images/generations
-                chat_api_url = os.environ.get("DOUBAO_CHAT_API_URL", "https://ark.cn-beijing.volces.com/api/v3/chat/completions")
-                model_id = os.environ.get("DOUBAO_MODEL_ID", "").strip()
+                # 调用通义千问API进行物品识别（chat/completions API）
+                # 注意：豆包API只支持images/generations，不支持chat/completions
+                # 因此使用通义千问的chat/completions API进行物品类型识别
+                qwen_api_key = os.environ.get("QWEN_API_KEY", "").strip()
+                qwen_api_url = os.environ.get("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+                qwen_model = os.environ.get("QWEN_MODEL", "qwen-vl-max").strip()
                 
-                if api_key and model_id and clothing_image_base64:
-                    # 构建识别请求
-                    # 注意：这里假设豆包API支持多模态输入，需要根据实际API文档调整
-                    prompt = "请识别这张图片中的物品类型。如果是配饰（如墨镜、眼镜、太阳镜、帽子、草编帽、礼帽、项链、颈圈、耳环、耳钉、手链、手镯、戒指、手表、腕表、围巾、领带、腰带、发带、头巾、手套、袜子、丝袜、口袋巾、手提包、手拿包、斜挎包、托特包、单肩包、腰包、信封包、链条包、背包、双肩包、旅行包等），请回复'配饰'；如果是服装（如外套、上衣、裙子、裤子、鞋子等），请回复'服装'。只回复'配饰'或'服装'，不要其他内容。"
+                if qwen_api_key and qwen_model and clothing_image_base64:
+                    # 构建识别请求 - 要求返回类型和详细描述
+                    prompt = """请识别这张图片中的物品，并返回JSON格式的结果：
+{
+  "type": "配饰" 或 "服装",
+  "description": "物品的详细描述，包括具体类型、颜色、风格等"
+}
+
+配饰包括：墨镜、眼镜、太阳镜、帽子、草编帽、礼帽、项链、颈圈、耳环、耳钉、手链、手镯、戒指、手表、腕表、围巾、领带、腰带、发带、头巾、手套、袜子、丝袜、口袋巾、手提包、手拿包、斜挎包、托特包、单肩包、腰包、信封包、链条包、背包、双肩包、旅行包等。
+
+服装包括：外套、上衣、T恤、衬衫、裙子、裤子、牛仔裤、鞋子、靴子、运动鞋等。
+
+请只返回JSON格式，不要其他内容。"""
                     
-                    # 构建请求体（根据豆包API文档调整格式）
                     payload = {
-                        "model": model_id,
+                        "model": qwen_model,
                         "messages": [
                             {
                                 "role": "user",
@@ -352,43 +371,73 @@ def create_app():
                                 ]
                             }
                         ],
-                        "max_tokens": 50,
+                        "max_tokens": 200,
                         "temperature": 0.1
                     }
                     
                     headers = {
-                        "Authorization": f"Bearer {api_key}",
+                        "Authorization": f"Bearer {qwen_api_key}",
                         "Content-Type": "application/json"
                     }
                     
-                    # 调用API
-                    response = requests.post(chat_api_url, json=payload, headers=headers, timeout=30)
+                    # 调用通义千问API
+                    response = requests.post(qwen_api_url, json=payload, headers=headers, timeout=30)
                     
                     if response.status_code == 200:
                         result = response.json()
-                        # 解析响应（根据实际API响应格式调整）
                         if "choices" in result and len(result["choices"]) > 0:
                             content = result["choices"][0].get("message", {}).get("content", "").strip()
-                            print(f"[DEBUG] 豆包API识别结果: {content}")
+                            print(f"[DEBUG] 通义千问API识别成功，原始结果: {content}")
                             
-                            # 判断识别结果
-                            if "配饰" in content or "accessory" in content.lower():
-                                return "wear", "配饰"
-                            else:
-                                return "try_on", "服装"
+                            # 尝试解析JSON格式的返回结果
+                            try:
+                                # 尝试提取JSON部分（可能包含markdown代码块）
+                                json_str = content
+                                if "```json" in content:
+                                    json_str = content.split("```json")[1].split("```")[0].strip()
+                                elif "```" in content:
+                                    json_str = content.split("```")[1].split("```")[0].strip()
+                                
+                                parsed_result = json.loads(json_str)
+                                item_type_str = parsed_result.get("type", "").strip()
+                                item_desc = parsed_result.get("description", "").strip()
+                                
+                                # 如果没有description，使用type作为描述
+                                if not item_desc:
+                                    item_desc = item_type_str if item_type_str else "服装"
+                                
+                                print(f"[DEBUG] 解析结果 - 类型: {item_type_str}, 描述: {item_desc}")
+                                
+                                if "配饰" in item_type_str or "accessory" in item_type_str.lower():
+                                    return "wear", item_desc if item_desc else "配饰"
+                                else:
+                                    return "try_on", item_desc if item_desc else "服装"
+                            except (json.JSONDecodeError, KeyError) as e:
+                                # JSON解析失败，回退到简单文本匹配
+                                print(f"[DEBUG] JSON解析失败，使用文本匹配: {str(e)}")
+                                if "配饰" in content or "accessory" in content.lower():
+                                    return "wear", "配饰"
+                                else:
+                                    return "try_on", "服装"
                     else:
-                        print(f"[WARN] 豆包API识别失败，状态码: {response.status_code}")
-                        print(f"[WARN] 响应: {response.text[:200]}")
-                        # 如果API调用失败，使用默认换装模式
+                        # API调用失败
+                        error_text = response.text[:200]
+                        print(f"[WARN] 通义千问API识别失败，状态码: {response.status_code}")
+                        print(f"[WARN] 响应: {error_text}")
+                        print(f"[WARN] API调用失败，使用默认换装模式")
+                        
                         return "try_on", "服装"
                 else:
-                    print(f"[DEBUG] 豆包API未配置或图片未提供，使用默认换装模式")
-                    return "try_on", "服装"  # 默认返回换装
+                    print(f"[DEBUG] 通义千问API未配置或图片未提供，使用默认换装模式")
+                    if not qwen_api_key:
+                        print(f"[DEBUG] 提示：请配置 QWEN_API_KEY 环境变量以启用物品类型识别")
+                    if not qwen_model:
+                        print(f"[DEBUG] 提示：请配置 QWEN_MODEL 环境变量（默认: qwen-vl-max）")
+                    return "try_on", "服装"
             except Exception as e:
-                print(f"[ERROR] 豆包API识别失败: {str(e)}")
-                import traceback
-                print(f"[ERROR] 堆栈跟踪: {traceback.format_exc()}")
-                return "try_on", "服装"  # 默认返回换装
+                print(f"[ERROR] 通义千问API识别异常: {str(e)}")
+                print(f"[INFO] 使用默认换装模式（所有物品按服装处理）")
+                return "try_on", "服装"
         
         # 标签信息足够，返回标签识别结果
         return item_type, item_description
