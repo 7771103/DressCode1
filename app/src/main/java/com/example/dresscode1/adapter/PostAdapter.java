@@ -1,6 +1,8 @@
 package com.example.dresscode1.adapter;
 
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -9,6 +11,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -93,6 +96,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
         private LinearLayout btnLike;
         private LinearLayout btnComment;
         private LinearLayout btnCollect;
+        private LinearLayout llTags;
 
         public PostViewHolder(@NonNull View itemView) {
             super(itemView);
@@ -109,6 +113,7 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             btnLike = itemView.findViewById(R.id.btnLike);
             btnComment = itemView.findViewById(R.id.btnComment);
             btnCollect = itemView.findViewById(R.id.btnCollect);
+            llTags = itemView.findViewById(R.id.llTags);
         }
 
         public void bind(Post post) {
@@ -143,6 +148,9 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
             tvLikeCount.setText(String.valueOf(post.getLikeCount()));
             tvCommentCount.setText(String.valueOf(post.getCommentCount()));
             tvCollectCount.setText(String.valueOf(post.getCollectCount()));
+
+            // 显示标签
+            displayTags(post.getTags());
 
             // 设置点赞状态
             if (post.isLiked()) {
@@ -208,6 +216,74 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.PostViewHolder
                     listener.onPostClick(post);
                 }
             });
+        }
+
+        private void displayTags(List<String> tags) {
+            llTags.removeAllViews();
+            
+            if (tags == null || tags.isEmpty()) {
+                llTags.setVisibility(View.GONE);
+                return;
+            }
+
+            llTags.setVisibility(View.VISIBLE);
+            int marginEnd = (int) (8 * itemView.getContext().getResources().getDisplayMetrics().density);
+            int marginBottom = (int) (4 * itemView.getContext().getResources().getDisplayMetrics().density);
+            int padding = (int) (12 * itemView.getContext().getResources().getDisplayMetrics().density);
+            
+            // 获取屏幕宽度
+            int screenWidth = itemView.getContext().getResources().getDisplayMetrics().widthPixels;
+            int availableWidth = screenWidth - (int) (32 * itemView.getContext().getResources().getDisplayMetrics().density); // 减去左右padding
+            
+            LinearLayout currentRow = null;
+            int currentRowWidth = 0;
+            
+            for (String tag : tags) {
+                if (tag == null || tag.trim().isEmpty()) {
+                    continue;
+                }
+                
+                TextView tagView = new TextView(itemView.getContext());
+                tagView.setText(tag.trim());
+                tagView.setTextSize(12);
+                tagView.setTextColor(ContextCompat.getColor(itemView.getContext(), R.color.primary_blue_gray));
+                tagView.setPadding(padding, padding / 2, padding, padding / 2);
+                
+                // 创建圆角背景
+                GradientDrawable drawable = new GradientDrawable();
+                drawable.setShape(GradientDrawable.RECTANGLE);
+                drawable.setCornerRadius(16);
+                drawable.setColor(Color.parseColor("#E3F2FD")); // 浅蓝色背景
+                tagView.setBackground(drawable);
+                
+                // 测量标签宽度
+                tagView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+                int tagWidth = tagView.getMeasuredWidth() + marginEnd;
+                
+                // 如果需要换行或当前行为空
+                if (currentRow == null || currentRowWidth + tagWidth > availableWidth) {
+                    currentRow = new LinearLayout(itemView.getContext());
+                    currentRow.setOrientation(LinearLayout.HORIZONTAL);
+                    LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    );
+                    rowParams.setMargins(0, 0, 0, marginBottom);
+                    currentRow.setLayoutParams(rowParams);
+                    llTags.addView(currentRow);
+                    currentRowWidth = 0;
+                }
+                
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+                params.setMargins(0, 0, marginEnd, 0);
+                tagView.setLayoutParams(params);
+                
+                currentRow.addView(tagView);
+                currentRowWidth += tagWidth;
+            }
         }
     }
 }

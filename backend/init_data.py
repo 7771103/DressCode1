@@ -125,6 +125,85 @@ def get_image_files():
     return image_files
 
 
+def extract_tags_from_label(label):
+    """从标签数据中提取标签列表"""
+    tags = []
+    
+    # 提取风格标签
+    if label.get("styles") and isinstance(label["styles"], list):
+        tags.extend([s.strip() for s in label["styles"] if s and isinstance(s, str)])
+    
+    # 提取季节标签
+    if label.get("season") and isinstance(label["season"], list):
+        tags.extend([s.strip() for s in label["season"] if s and isinstance(s, str)])
+    
+    # 提取场景标签
+    if label.get("scenes") and isinstance(label["scenes"], list):
+        tags.extend([s.strip() for s in label["scenes"] if s and isinstance(s, str)])
+    
+    # 如果前面三个字段都没有标签，尝试从其他字段提取
+    if not tags:
+        # 提取性别标签
+        gender = label.get("gender")
+        if gender and isinstance(gender, str) and gender.strip() and gender.lower() != "unknown":
+            tags.append(gender.strip())
+        
+        # 提取年龄组标签
+        if label.get("age_group") and isinstance(label["age_group"], list):
+            tags.extend([s.strip() for s in label["age_group"] if s and isinstance(s, str)])
+        
+        # 提取颜色标签（只取前2个主要颜色）
+        if label.get("colors") and isinstance(label["colors"], list):
+            colors = [s.strip() for s in label["colors"] if s and isinstance(s, str)]
+            tags.extend(colors[:2])  # 只取前2个颜色
+        
+        # 提取图案或材质标签（只取前2个）
+        if label.get("patterns_or_materials") and isinstance(label["patterns_or_materials"], list):
+            patterns = [s.strip() for s in label["patterns_or_materials"] if s and isinstance(s, str)]
+            tags.extend(patterns[:2])  # 只取前2个
+    
+    # 去重并过滤空标签
+    tags = list(set([tag for tag in tags if tag]))
+    
+    return tags
+
+
+def create_tags_for_post(cursor, post_id, tags):
+    """为帖子创建标签"""
+    if not tags:
+        return
+    
+    for tag_name in tags:
+        tag_name = tag_name.strip()
+        if not tag_name:
+            continue
+        
+        # 查找或创建标签
+        cursor.execute("SELECT id FROM tags WHERE name = %s", (tag_name,))
+        tag_row = cursor.fetchone()
+        
+        if tag_row:
+            tag_id = tag_row[0]
+        else:
+            # 创建新标签
+            cursor.execute(
+                "INSERT INTO tags (name) VALUES (%s)",
+                (tag_name,)
+            )
+            tag_id = cursor.lastrowid
+        
+        # 创建帖子标签关联（如果不存在）
+        cursor.execute(
+            "SELECT id FROM post_tags WHERE post_id = %s AND tag_id = %s",
+            (post_id, tag_id)
+        )
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO post_tags (post_id, tag_id) VALUES (%s, %s)",
+                (post_id, tag_id)
+            )
+
+
 def init_posts():
     """初始化帖子数据"""
     conn = get_db_connection()
@@ -200,6 +279,14 @@ def init_posts():
             )
 
             post_id = cursor.lastrowid
+            
+            # 从标签数据中提取标签并创建
+            tags = extract_tags_from_label(label)
+            if tags:
+                create_tags_for_post(cursor, post_id, tags)
+                print(f"创建帖子: {image_file} (用户ID: {user_id}, 标签: {', '.join(tags)})")
+            else:
+                print(f"创建帖子: {image_file} (用户ID: {user_id}, 无标签)")
 
             # 随机创建一些点赞记录
             if like_count > 0:
@@ -271,12 +358,65 @@ def init_posts():
                             (comment_user_id, post_id, comment_content, comment_time),
                         )
 
-            print(f"创建帖子: {image_file} (用户ID: {user_id})")
-
     conn.commit()
     cursor.close()
     conn.close()
     print("帖子数据初始化完成\n")
+
+
+def fix_future_dates():
+    """修复所有表中的未来日期"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    now = datetime.now()
+    print("开始修复未来日期...")
+    print(f"当前时间: {now}")
+    
+    # 需要检查的表和字段
+    tables = [
+        ("posts", "created_at"),
+        ("likes", "created_at"),
+        ("collections", "created_at"),
+        ("comments", "created_at"),
+        ("follows", "created_at"),
+    ]
+    
+    total_fixed = 0
+    
+    for table_name, date_field in tables:
+        # 查找未来日期的记录
+        query = f"""
+            SELECT id, {date_field} 
+            FROM {table_name} 
+            WHERE {date_field} > %s
+            ORDER BY {date_field} DESC
+        """
+        cursor.execute(query, (now,))
+        future_records = cursor.fetchall()
+        
+        if future_records:
+            print(f"  表 {table_name}.{date_field}: 找到 {len(future_records)} 条未来日期的记录")
+            
+            # 修复这些记录：将未来日期改为当前时间
+            update_query = f"""
+                UPDATE {table_name} 
+                SET {date_field} = %s 
+                WHERE {date_field} > %s
+            """
+            cursor.execute(update_query, (now, now))
+            affected_rows = cursor.rowcount
+            print(f"    ✓ 已修复 {affected_rows} 条记录")
+            total_fixed += affected_rows
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    if total_fixed > 0:
+        print(f"未来日期修复完成！总共修复了 {total_fixed} 条记录\n")
+    else:
+        print("未发现未来日期的记录\n")
 
 
 def main():
@@ -289,6 +429,7 @@ def main():
     try:
         init_users()
         init_posts()
+        fix_future_dates()
         print("=" * 50)
         print("数据初始化完成！")
         print("=" * 50)

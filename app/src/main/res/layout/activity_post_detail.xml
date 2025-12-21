@@ -122,8 +122,17 @@
                         android:text="帖子内容..."
                         android:textColor="@color/text_primary_dark"
                         android:textSize="15sp"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="12dp"
                         android:lineSpacingExtra="6dp" />
+
+                    <!-- 标签容器 -->
+                    <LinearLayout
+                        android:id="@+id/llTags"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="16dp"
+                        android:visibility="gone" />
 
                     <!-- 帖子图片 -->
                     <ImageView

@@ -3,6 +3,7 @@ package com.example.dresscode1.network.dto;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.Serializable;
+import java.util.List;
 
 public class Post implements Serializable {
     @SerializedName("id")
@@ -37,6 +38,9 @@ public class Post implements Serializable {
 
     @SerializedName("isCollected")
     private boolean isCollected;
+
+    @SerializedName("tags")
+    private List<String> tags;
 
     @SerializedName("createdAt")
     private String createdAt;
@@ -128,6 +132,14 @@ public class Post implements Serializable {
 
     public void setCollected(boolean collected) {
         isCollected = collected;
+    }
+
+    public List<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<String> tags) {
+        this.tags = tags;
     }
 
     public String getCreatedAt() {

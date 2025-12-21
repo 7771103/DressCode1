@@ -68,7 +68,8 @@
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="内容（可选）">
+        android:hint="内容（可选）"
+        android:layout_marginBottom="8dp">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/etContent"
@@ -77,6 +78,18 @@
             android:inputType="textMultiLine"
             android:minLines="3"
             android:maxLines="5" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="标签（可选，用逗号分隔，如：时尚,穿搭,日常）">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etTags"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
     </com.google.android.material.textfield.TextInputLayout>
 
 </LinearLayout>

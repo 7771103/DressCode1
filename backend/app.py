@@ -480,6 +480,23 @@ def create_app():
         created_at = db.Column(db.DateTime, default=datetime.utcnow)
         user = db.relationship("User", backref="user_photos")
 
+    class Tag(db.Model):
+        __tablename__ = "tags"
+        id = db.Column(db.Integer, primary_key=True)
+        name = db.Column(db.String(50), unique=True, nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        posts = db.relationship("PostTag", back_populates="tag", cascade="all, delete-orphan")
+
+    class PostTag(db.Model):
+        __tablename__ = "post_tags"
+        id = db.Column(db.Integer, primary_key=True)
+        post_id = db.Column(db.Integer, db.ForeignKey("posts.id"), nullable=False)
+        tag_id = db.Column(db.Integer, db.ForeignKey("tags.id"), nullable=False)
+        created_at = db.Column(db.DateTime, default=datetime.utcnow)
+        post = db.relationship("Post", backref="post_tags")
+        tag = db.relationship("Tag", back_populates="posts")
+        __table_args__ = (db.UniqueConstraint("post_id", "tag_id", name="uq_post_tags_post_tag"),)
+
     @app.route("/api/register", methods=["POST"])
     def register():
         data = request.get_json(silent=True) or {}
@@ -603,6 +620,10 @@ def create_app():
                 else False
             )
 
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
             result.append(
                 {
                     "id": post.id,
@@ -611,6 +632,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tags,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,
@@ -676,6 +698,10 @@ def create_app():
                 else False
             )
 
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
             result.append(
                 {
                     "id": post.id,
@@ -684,6 +710,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tags,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,
@@ -737,6 +764,10 @@ def create_app():
                 is not None
             )
 
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
             result.append(
                 {
                     "id": post.id,
@@ -745,6 +776,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tags,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,
@@ -977,6 +1009,10 @@ def create_app():
                 is not None
             )
 
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
             result.append(
                 {
                     "id": post.id,
@@ -985,6 +1021,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tags,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,
@@ -1041,6 +1078,10 @@ def create_app():
             )
             is_collected = True  # 用户已经收藏
 
+            # 获取帖子的标签
+            post_tags = PostTag.query.filter_by(post_id=post.id).all()
+            tags = [post_tag.tag.name for post_tag in post_tags]
+
             result.append(
                 {
                     "id": post.id,
@@ -1049,6 +1090,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tags,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,
@@ -1432,6 +1474,7 @@ def create_app():
         user_id = data.get("user_id")
         image_path = (data.get("image_path") or "").strip()
         content = (data.get("content") or "").strip()
+        tags = data.get("tags", [])  # 标签列表，例如 ["时尚", "穿搭", "日常"]
 
         if not user_id:
             return jsonify({"ok": False, "msg": "需要登录"}), 401
@@ -1451,6 +1494,27 @@ def create_app():
             collect_count=0,
         )
         db.session.add(post)
+        db.session.flush()  # 获取post.id
+
+        # 处理标签
+        tag_names = []
+        if tags and isinstance(tags, list):
+            for tag_name in tags:
+                if tag_name and isinstance(tag_name, str):
+                    tag_name = tag_name.strip()
+                    if tag_name:
+                        # 查找或创建标签
+                        tag = Tag.query.filter_by(name=tag_name).first()
+                        if not tag:
+                            tag = Tag(name=tag_name)
+                            db.session.add(tag)
+                            db.session.flush()
+                        
+                        # 创建帖子标签关联
+                        post_tag = PostTag(post_id=post.id, tag_id=tag.id)
+                        db.session.add(post_tag)
+                        tag_names.append(tag_name)
+
         db.session.commit()
 
         return jsonify(
@@ -1464,6 +1528,7 @@ def create_app():
                     "userAvatar": user.avatar if user else None,
                     "imagePath": post.image_path,
                     "content": post.content or "",
+                    "tags": tag_names,
                     "likeCount": post.like_count,
                     "commentCount": post.comment_count,
                     "collectCount": post.collect_count,

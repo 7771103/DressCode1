@@ -2260,6 +2260,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         ImageButton btnRemoveImage = dialogView.findViewById(R.id.btnRemoveImage);
         Button btnSelectImage = dialogView.findViewById(R.id.btnSelectImage);
         TextInputEditText etContent = dialogView.findViewById(R.id.etContent);
+        TextInputEditText etTags = dialogView.findViewById(R.id.etTags);
         
         Uri[] selectedImageUri = {null};
         String[] uploadedImagePath = {null};
@@ -2307,18 +2308,31 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 .setView(dialogView)
                 .setPositiveButton("发布", (d, w) -> {
                     String content = etContent.getText() != null ? etContent.getText().toString().trim() : "";
+                    String tagsInput = etTags.getText() != null ? etTags.getText().toString().trim() : "";
                     
                     if (selectedImageUri[0] == null && uploadedImagePath[0] == null) {
                         Toast.makeText(this, "请选择图片", Toast.LENGTH_SHORT).show();
                         return;
                     }
                     
+                    // 解析标签（用逗号分隔）
+                    List<String> tags = new ArrayList<>();
+                    if (!tagsInput.isEmpty()) {
+                        String[] tagArray = tagsInput.split(",");
+                        for (String tag : tagArray) {
+                            String trimmedTag = tag.trim();
+                            if (!trimmedTag.isEmpty()) {
+                                tags.add(trimmedTag);
+                            }
+                        }
+                    }
+                    
                     // 如果图片还没有上传，先上传图片
                     if (uploadedImagePath[0] == null && selectedImageUri[0] != null) {
-                        uploadPostImageAndCreatePost(selectedImageUri[0], content);
+                        uploadPostImageAndCreatePost(selectedImageUri[0], content, tags);
                     } else {
                         // 图片已经上传，直接创建帖子
-                        createPost(uploadedImagePath[0], content);
+                        createPost(uploadedImagePath[0], content, tags);
                     }
                 })
                 .setNegativeButton("取消", null)
@@ -2327,7 +2341,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         dialog.show();
     }
     
-    private void uploadPostImageAndCreatePost(Uri imageUri, String content) {
+    private void uploadPostImageAndCreatePost(Uri imageUri, String content, List<String> tags) {
         InputStream inputStream = null;
         ByteArrayOutputStream outputStream = null;
         try {
@@ -2380,7 +2394,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                 UploadPostImageResponse uploadResponse = response.body();
                                 if (uploadResponse.isOk()) {
                                     // 图片上传成功，创建帖子
-                                    createPost(uploadResponse.getImagePath(), content);
+                                    createPost(uploadResponse.getImagePath(), content, tags);
                                 } else {
                                     Toast.makeText(HomeActivity.this, uploadResponse.getMsg(), Toast.LENGTH_SHORT).show();
                                 }
@@ -2419,8 +2433,8 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         }
     }
     
-    private void createPost(String imagePath, String content) {
-        CreatePostRequest request = new CreatePostRequest(currentUserId, imagePath, content);
+    private void createPost(String imagePath, String content, List<String> tags) {
+        CreatePostRequest request = new CreatePostRequest(currentUserId, imagePath, content, tags);
         ApiClient.getService().createPost(request)
                 .enqueue(new Callback<CreatePostResponse>() {
                     @Override

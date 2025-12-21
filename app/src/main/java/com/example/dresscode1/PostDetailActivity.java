@@ -1,6 +1,8 @@
 package com.example.dresscode1;
 
 import android.content.Intent;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.ImageView;
@@ -38,6 +40,8 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
+import java.util.List;
+
 public class PostDetailActivity extends AppCompatActivity {
 
     private MaterialToolbar toolbar;
@@ -59,6 +63,7 @@ public class PostDetailActivity extends AppCompatActivity {
     private LinearLayout llUserInfo;
     private MaterialButton btnFollow;
     private MaterialButton btnTryOn;
+    private LinearLayout llTags;
 
     private Post post;
     private CommentAdapter commentAdapter;
@@ -113,6 +118,7 @@ public class PostDetailActivity extends AppCompatActivity {
         llUserInfo = findViewById(R.id.llUserInfo);
         btnFollow = findViewById(R.id.btnFollow);
         btnTryOn = findViewById(R.id.btnTryOn);
+        llTags = findViewById(R.id.llTags);
     }
 
     private void setupToolbar() {
@@ -159,6 +165,9 @@ public class PostDetailActivity extends AppCompatActivity {
 
         // 设置内容
         tvContent.setText(post.getContent() != null ? post.getContent() : "");
+
+        // 显示标签
+        displayTags(post.getTags());
 
         // 加载图片 - 从dataset中的图片
         String imageUrl = ApiClient.getImageUrl(post.getImagePath());
@@ -485,6 +494,74 @@ public class PostDetailActivity extends AppCompatActivity {
                         Toast.makeText(PostDetailActivity.this, "操作失败", Toast.LENGTH_SHORT).show();
                     }
                 });
+    }
+
+    private void displayTags(List<String> tags) {
+        llTags.removeAllViews();
+        
+        if (tags == null || tags.isEmpty()) {
+            llTags.setVisibility(View.GONE);
+            return;
+        }
+
+        llTags.setVisibility(View.VISIBLE);
+        int marginEnd = (int) (8 * getResources().getDisplayMetrics().density);
+        int marginBottom = (int) (4 * getResources().getDisplayMetrics().density);
+        int padding = (int) (12 * getResources().getDisplayMetrics().density);
+        
+        // 获取屏幕宽度
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int availableWidth = screenWidth - (int) (64 * getResources().getDisplayMetrics().density); // 减去左右padding和margin
+        
+        LinearLayout currentRow = null;
+        int currentRowWidth = 0;
+        
+        for (String tag : tags) {
+            if (tag == null || tag.trim().isEmpty()) {
+                continue;
+            }
+            
+            TextView tagView = new TextView(this);
+            tagView.setText(tag.trim());
+            tagView.setTextSize(12);
+            tagView.setTextColor(ContextCompat.getColor(this, R.color.primary_blue_gray));
+            tagView.setPadding(padding, padding / 2, padding, padding / 2);
+            
+            // 创建圆角背景
+            GradientDrawable drawable = new GradientDrawable();
+            drawable.setShape(GradientDrawable.RECTANGLE);
+            drawable.setCornerRadius(16);
+            drawable.setColor(Color.parseColor("#E3F2FD")); // 浅蓝色背景
+            tagView.setBackground(drawable);
+            
+            // 测量标签宽度
+            tagView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            int tagWidth = tagView.getMeasuredWidth() + marginEnd;
+            
+            // 如果需要换行或当前行为空
+            if (currentRow == null || currentRowWidth + tagWidth > availableWidth) {
+                currentRow = new LinearLayout(this);
+                currentRow.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                );
+                rowParams.setMargins(0, 0, 0, marginBottom);
+                currentRow.setLayoutParams(rowParams);
+                llTags.addView(currentRow);
+                currentRowWidth = 0;
+            }
+            
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            );
+            params.setMargins(0, 0, marginEnd, 0);
+            tagView.setLayoutParams(params);
+            
+            currentRow.addView(tagView);
+            currentRowWidth += tagWidth;
+        }
     }
 
 }
