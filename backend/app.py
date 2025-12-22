@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
@@ -855,7 +855,7 @@ def create_app():
         user_gender = None
         user_age = None
         if current_user_id > 0:
-            current_user = User.query.get(current_user_id)
+            current_user = db.session.get(User, current_user_id)
             if current_user:
                 if current_user.gender:
                     user_gender = current_user.gender
@@ -967,7 +967,7 @@ def create_app():
 
         result = []
         for post in paginated_posts:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
                 is not None
@@ -1038,7 +1038,7 @@ def create_app():
             
             result = []
             for post in posts:
-                user = User.query.get(post.user_id)
+                user = db.session.get(User, post.user_id)
                 is_liked = (
                     Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
                     is not None
@@ -1172,7 +1172,7 @@ def create_app():
 
         result = []
         for post in posts.items:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
                 is not None
@@ -1239,7 +1239,7 @@ def create_app():
         # 获取当前用户的性别（如果已登录）
         user_gender = None
         if current_user_id > 0:
-            current_user = User.query.get(current_user_id)
+            current_user = db.session.get(User, current_user_id)
             if current_user and current_user.gender:
                 user_gender = current_user.gender
 
@@ -1295,7 +1295,7 @@ def create_app():
 
         result = []
         for post in paginated_posts:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
                 is not None
@@ -1370,7 +1370,7 @@ def create_app():
 
         result = []
         for post in posts.items:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=user_id, post_id=post.id).first()
                 is not None
@@ -1423,7 +1423,7 @@ def create_app():
         if not user_id:
             return jsonify({"ok": False, "msg": "需要登录"}), 401
 
-        post = Post.query.get(post_id)
+        post = db.session.get(Post, post_id)
         if not post:
             return jsonify({"ok": False, "msg": "帖子不存在"}), 404
 
@@ -1463,7 +1463,7 @@ def create_app():
         if not user_id:
             return jsonify({"ok": False, "msg": "需要登录"}), 401
 
-        post = Post.query.get(post_id)
+        post = db.session.get(Post, post_id)
         if not post:
             return jsonify({"ok": False, "msg": "帖子不存在"}), 404
 
@@ -1513,7 +1513,7 @@ def create_app():
 
         result = []
         for comment in comments.items:
-            user = User.query.get(comment.user_id)
+            user = db.session.get(User, comment.user_id)
             result.append(
                 {
                     "id": comment.id,
@@ -1547,7 +1547,7 @@ def create_app():
         if not content:
             return jsonify({"ok": False, "msg": "评论内容不能为空"}), 400
 
-        post = Post.query.get(post_id)
+        post = db.session.get(Post, post_id)
         if not post:
             return jsonify({"ok": False, "msg": "帖子不存在"}), 404
 
@@ -1556,7 +1556,7 @@ def create_app():
         post.comment_count += 1
         db.session.commit()
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         return jsonify(
             {
                 "ok": True,
@@ -1575,7 +1575,7 @@ def create_app():
     # 获取用户信息
     @app.route("/api/user/<int:user_id>", methods=["GET"])
     def get_user(user_id):
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
 
@@ -1647,7 +1647,7 @@ def create_app():
 
         result = []
         for post, like in posts_with_likes:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = True  # 用户已经点赞
             is_collected = (
                 Collection.query.filter_by(user_id=user_id, post_id=post.id).first()
@@ -1719,7 +1719,7 @@ def create_app():
 
         result = []
         for post, collection in posts_with_collections:
-            user = User.query.get(post.user_id)
+            user = db.session.get(User, post.user_id)
             is_liked = (
                 Like.query.filter_by(user_id=user_id, post_id=post.id).first()
                 is not None
@@ -1766,7 +1766,7 @@ def create_app():
     def update_user(user_id):
         data = request.get_json(silent=True) or {}
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -1808,7 +1808,7 @@ def create_app():
     # 上传头像
     @app.route("/api/user/<int:user_id>/avatar", methods=["POST"])
     def upload_avatar(user_id):
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -1859,7 +1859,7 @@ def create_app():
         if len(new_password) < 6:
             return jsonify({"ok": False, "msg": "新密码至少6位"}), 400
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -1874,7 +1874,7 @@ def create_app():
     # 上传用户照片
     @app.route("/api/user/<int:user_id>/photos", methods=["POST"])
     def upload_user_photo(user_id):
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -1923,7 +1923,7 @@ def create_app():
     # 获取用户照片列表
     @app.route("/api/user/<int:user_id>/photos", methods=["GET"])
     def get_user_photos(user_id):
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -1943,7 +1943,7 @@ def create_app():
     # 删除用户照片
     @app.route("/api/user/<int:user_id>/photos/<int:photo_id>", methods=["DELETE"])
     def delete_user_photo(user_id, photo_id):
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -2013,7 +2013,7 @@ def create_app():
         if current_user_id == user_id:
             return jsonify({"ok": False, "msg": "不能关注自己"}), 400
         
-        target_user = User.query.get(user_id)
+        target_user = db.session.get(User, user_id)
         if not target_user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -2050,7 +2050,7 @@ def create_app():
         
         result = []
         for follow in follows.items:
-            following_user = User.query.get(follow.following_id)
+            following_user = db.session.get(User, follow.following_id)
             if following_user:
                 # 检查当前用户是否关注了这个用户
                 is_following = False
@@ -2092,7 +2092,7 @@ def create_app():
         
         result = []
         for follow in follows.items:
-            follower_user = User.query.get(follow.follower_id)
+            follower_user = db.session.get(User, follow.follower_id)
             if follower_user:
                 # 检查当前用户是否关注了这个用户
                 is_following = False
@@ -2132,7 +2132,7 @@ def create_app():
         if not image_path:
             return jsonify({"ok": False, "msg": "图片路径不能为空"}), 400
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
 
@@ -2205,7 +2205,7 @@ def create_app():
         # 调试日志
         print(f"[DELETE POST] post_id={post_id}, user_id={user_id}")
         
-        post = Post.query.get(post_id)
+        post = db.session.get(Post, post_id)
         if not post:
             print(f"[DELETE POST] Post {post_id} not found")
             return jsonify({"ok": False, "msg": "帖子不存在"}), 404
@@ -2574,7 +2574,7 @@ def create_app():
         if not user_image_path or not clothing_image_path:
             return jsonify({"ok": False, "msg": "用户照片和衣服图片不能为空"}), 400
         
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({"ok": False, "msg": "用户不存在"}), 404
         
@@ -2746,7 +2746,7 @@ def create_app():
         
         result = []
         for try_on in try_ons.items:
-            post = Post.query.get(try_on.post_id) if try_on.post_id else None
+            post = db.session.get(Post, try_on.post_id) if try_on.post_id else None
             result.append({
                 "id": try_on.id,
                 "userImagePath": try_on.user_image_path,
@@ -2785,7 +2785,7 @@ def create_app():
             
             result = []
             for item in items:
-                post = Post.query.get(item.post_id) if item.post_id else None
+                post = db.session.get(Post, item.post_id) if item.post_id else None
                 result.append({
                     "id": item.id,
                     "imagePath": item.image_path,
@@ -2912,7 +2912,7 @@ def create_app():
         
         try:
             # 查找衣橱物品
-            wardrobe_item = WardrobeItem.query.get(item_id)
+            wardrobe_item = db.session.get(WardrobeItem, item_id)
             if not wardrobe_item:
                 return jsonify({"ok": False, "msg": "衣橱物品不存在"}), 404
             
@@ -2926,7 +2926,7 @@ def create_app():
             
             # 如果来自点赞或收藏，需要取消对应的点赞和收藏
             if source_type in ["liked_post", "collected_post", "liked_and_collected"] and post_id:
-                post = Post.query.get(post_id)
+                post = db.session.get(Post, post_id)
                 if post:
                     # 取消点赞
                     if source_type in ["liked_post", "liked_and_collected"]:
@@ -3122,14 +3122,22 @@ def create_app():
         if user_id:
             try:
                 # 获取用户点赞的帖子标签
-                liked_post_tags = db.session.query(Tag.name).join(PostTag).join(Like).filter(
-                    Like.user_id == user_id
-                ).distinct().all()
+                # 明确指定 join 路径：Tag -> PostTag -> Post -> Like
+                liked_post_tags = db.session.query(Tag.name)\
+                    .join(PostTag, Tag.id == PostTag.tag_id)\
+                    .join(Post, PostTag.post_id == Post.id)\
+                    .join(Like, Post.id == Like.post_id)\
+                    .filter(Like.user_id == user_id)\
+                    .distinct().all()
                 
                 # 获取用户收藏的帖子标签
-                collected_post_tags = db.session.query(Tag.name).join(PostTag).join(Collection).filter(
-                    Collection.user_id == user_id
-                ).distinct().all()
+                # 明确指定 join 路径：Tag -> PostTag -> Post -> Collection
+                collected_post_tags = db.session.query(Tag.name)\
+                    .join(PostTag, Tag.id == PostTag.tag_id)\
+                    .join(Post, PostTag.post_id == Post.id)\
+                    .join(Collection, Post.id == Collection.post_id)\
+                    .filter(Collection.user_id == user_id)\
+                    .distinct().all()
                 
                 # 合并并去重
                 all_tags = set([tag[0] for tag in liked_post_tags] + [tag[0] for tag in collected_post_tags])
@@ -3137,8 +3145,12 @@ def create_app():
                 
                 if user_preferred_tags:
                     print(f"[RAG调试] 用户偏好标签: {user_preferred_tags[:10]}")
+                else:
+                    print(f"[RAG调试] 用户暂无偏好标签（用户ID: {user_id}）")
             except Exception as e:
                 print(f"[RAG调试] 获取用户标签偏好失败: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 提取天气相关关键词（用于匹配）
         weather_keywords = []
@@ -3178,28 +3190,37 @@ def create_app():
         stop_words = {"的", "了", "吗", "呢", "啊", "呀", "什么", "怎么", "如何", "推荐", "适合", "穿搭", "衣服", "服装", "一个", "一件", "帮我", "想要"}
         query_lower = query.lower()
         
-        # 先尝试按空格分割（适用于英文或带空格的查询）
-        query_words = [w for w in query_lower.split() if w not in stop_words and len(w) > 1]
+        # 先清理查询，去除stop_words
+        cleaned_query = query
+        for stop_word in stop_words:
+            cleaned_query = cleaned_query.replace(stop_word, " ")
+        cleaned_query = cleaned_query.strip()
         
-        # 如果分割后词太少或为空，尝试中文分词（简单版本：提取2-4字的连续字符）
+        # 先尝试按空格分割（适用于英文或带空格的查询）
+        query_words = [w for w in cleaned_query.lower().split() if w not in stop_words and len(w) > 1]
+        
+        # 如果分割后词太少或为空，尝试中文分词（改进：优先提取完整词组，再提取独立关键词）
         if len(query_words) <= 1:
-            # 提取2-4字的中文词组
-            chinese_chars = re.findall(r'[\u4e00-\u9fff]+', query)
+            # 提取中文词组
+            chinese_chars = re.findall(r'[\u4e00-\u9fff]+', cleaned_query)
+            query_words = []
+            
+            # 优先提取完整的中文词组（去除stop_words后）
             for text in chinese_chars:
-                # 提取2-4字的子串
+                if text not in stop_words and len(text) >= 2:
+                    query_words.append(text)  # 先添加完整词组
+            
+            # 然后提取2-4字的子串作为独立关键词（用于更灵活的匹配）
+            for text in chinese_chars:
                 for i in range(len(text)):
                     for length in [2, 3, 4]:
                         if i + length <= len(text):
                             word = text[i:i+length]
-                            if word not in stop_words and word not in query_words:
+                            if word not in stop_words and word not in query_words and len(word) >= 2:
                                 query_words.append(word)
         
         # 如果还是没有关键词，至少保留完整查询（去除stop_words）
         if not query_words:
-            cleaned_query = query_lower
-            for stop_word in stop_words:
-                cleaned_query = cleaned_query.replace(stop_word, " ")
-            cleaned_query = cleaned_query.strip()
             if cleaned_query and len(cleaned_query) > 1:
                 query_words = [cleaned_query]
         
@@ -3207,7 +3228,140 @@ def create_app():
         if not query_words:
             query_words = [query_lower]
         
+        # 去重并保持顺序（完整词组在前）
+        seen = set()
+        unique_query_words = []
+        for word in query_words:
+            if word not in seen:
+                seen.add(word)
+                unique_query_words.append(word)
+        query_words = unique_query_words
+        
         print(f"[RAG调试] 查询: {query}, 提取关键词: {query_words}")
+        
+        # 从查询中提取物品类型关键词（用于优先匹配特定类型的帖子）
+        # 定义物品类型关键词（包类、配饰类、服装类等）
+        item_type_keywords = {
+            # 包类
+            "手提包", "手拿包", "斜挎包", "托特包", "单肩包", "腰包", "信封包", 
+            "链条包", "交叉包", "包", "背包", "双肩包", "旅行包", "帆布包", 
+            "草编包", "手拿", "斜挎", "托特", "单肩", "腰包", "信封", "链条", 
+            "交叉", "背包", "双肩", "旅行", "肩带包",
+            "handbag", "bag", "clutch", "tote", "crossbody", "satchel", 
+            "fanny pack", "waist bag", "backpack", "shoulder bag", "messenger bag",
+            "duffle", "holdall", "pouch", "purse", "duffle bag",
+            # 其他配饰类
+            "墨镜", "眼镜", "太阳镜", "sunglasses", "glasses",
+            "帽子", "帽", "hat", "cap",
+            "项链", "necklace", "choker",
+            "耳环", "earring", "耳钉",
+            "手链", "手镯", "bracelet", "bangle",
+            "戒指", "ring",
+            "手表", "watch", "腕表",
+            "围巾", "scarf",
+            "领带", "tie",
+            "腰带", "belt",
+            "鞋子", "鞋", "shoe", "shoes", "sneakers", "boots", "pumps", "heels", "sandals",
+            # 服装类
+            "上衣", "衬衫", "t-shirt", "shirt", "blouse", "top", "sweater", "毛衣",
+            "外套", "jacket", "coat", "blazer", "风衣", "大衣",
+            "裙子", "dress", "连衣裙", "skirt",
+            "裤子", "pants", "trousers", "jeans", "牛仔裤", "leggings", "短裤", "shorts"
+        }
+        
+        # 定义套装相关关键词（如果帖子是套装类型，但不是直接匹配物品类型，则降低优先级）
+        suit_keywords = {"套装", "suit", "set", "outfit", "look", "ensemble", "搭配"}
+        
+        # 定义主要物品类型关键词（用于判断帖子内容是否主要描述该物品）
+        # 如果帖子内容中这些关键词出现频率高，说明帖子主要描述这些物品，而不是查询的物品类型
+        main_item_keywords = {
+            "连衣裙", "dress", "长裙", "短裙", "半身裙", "skirt",
+            "上衣", "shirt", "衬衫", "t恤", "t-shirt", "top", "blouse",
+            "裤子", "pants", "trousers", "牛仔裤", "jeans", "阔腿裤",
+            "外套", "jacket", "coat", "大衣", "风衣", "西装",
+            "鞋子", "shoes", "boots", "靴子", "sneakers", "运动鞋",
+            "配饰", "accessories", "首饰", "jewelry"
+        }
+        
+        # 从查询中提取物品类型关键词
+        query_item_types = []
+        query_lower = query.lower()
+        for item_type in item_type_keywords:
+            if item_type.lower() in query_lower or query_lower in item_type.lower():
+                query_item_types.append(item_type.lower())
+        # 也从query_words中提取物品类型
+        for word in query_words:
+            word_lower = word.lower()
+            for item_type in item_type_keywords:
+                if item_type.lower() in word_lower or word_lower in item_type.lower():
+                    if item_type.lower() not in query_item_types:
+                        query_item_types.append(item_type.lower())
+        
+        if query_item_types:
+            print(f"[RAG调试] 检测到物品类型关键词: {query_item_types}")
+        
+        # 辅助函数：检查帖子内容是否主要描述查询的物品类型
+        def is_content_focused_on_item_type(content, query_item_types, main_item_keywords):
+            """
+            检查帖子内容是否主要描述查询的物品类型
+            返回：(is_focused, item_type_count, other_main_items_count)
+            - is_focused: 是否主要描述该物品类型
+            - item_type_count: 内容中查询物品类型关键词出现次数
+            - other_main_items_count: 内容中其他主要物品类型关键词出现次数
+            """
+            if not query_item_types or not content:
+                return True, 0, 0
+            
+            content_lower = content.lower()
+            item_type_count = 0
+            other_main_items_count = 0
+            
+            # 检查是否是穿搭帖子（包含"穿搭"、"搭配"、"今日穿搭"等关键词）
+            outfit_keywords = ["穿搭", "搭配", "今日穿搭", "outfit", "look", "style", "今日look"]
+            is_outfit_post = any(keyword in content_lower for keyword in outfit_keywords)
+            
+            # 统计查询物品类型关键词在内容中的出现次数
+            for item_type in query_item_types:
+                item_type_count += content_lower.count(item_type)
+            
+            # 统计其他主要物品类型关键词在内容中的出现次数，并记录出现了哪些不同的主要物品类型
+            found_main_item_types = set()
+            for main_item in main_item_keywords:
+                # 排除查询的物品类型本身（避免重复计算）
+                is_query_item = False
+                for item_type in query_item_types:
+                    if item_type in main_item.lower() or main_item.lower() in item_type:
+                        is_query_item = True
+                        break
+                if not is_query_item:
+                    count = content_lower.count(main_item.lower())
+                    if count > 0:
+                        other_main_items_count += count
+                        found_main_item_types.add(main_item)
+            
+            # 如果内容中包含"穿搭"、"搭配"等关键词，且提到了多个物品类型（>=2个不同的主要物品类型），
+            # 则认为这是一个穿搭帖子，不是专门推荐某个物品的帖子
+            if is_outfit_post and len(found_main_item_types) >= 1:
+                # 穿搭帖子中，如果查询物品类型只是作为配饰提到，不应该认为主要描述该物品
+                # 只有当查询物品类型出现次数明显多于其他主要物品类型时（至少多2次），才认为主要描述该物品
+                is_focused = item_type_count > other_main_items_count + 1
+            elif len(found_main_item_types) >= 2:
+                # 即使没有明确的"穿搭"关键词，如果提到了多个主要物品类型（>=2个），
+                # 也认为是穿搭帖子，需要查询物品类型出现次数明显更多才认为主要描述该物品
+                is_focused = item_type_count > other_main_items_count + 1
+            else:
+                # 如果只提到了1个或0个其他主要物品类型，使用原来的逻辑
+                # 如果查询物品类型出现次数 > 其他主要物品类型出现次数，认为主要描述该物品
+                # 或者如果查询物品类型出现次数 >= 2 且没有其他主要物品类型，也认为主要描述该物品
+                is_focused = item_type_count > other_main_items_count or (item_type_count >= 2 and other_main_items_count == 0)
+            
+            return is_focused, item_type_count, other_main_items_count
+        
+        # 判断用户是否明确指定了需求（有具体的查询关键词，不是空查询或通用查询）
+        # 如果query不为空且query_words有具体内容，则认为用户有明确需求
+        has_explicit_query = bool(query and query.strip() and query_words and len(query_words) > 0)
+        if has_explicit_query:
+            print(f"[RAG调试] 用户明确指定了需求，将降低偏好标签的影响")
         
         # 1. 从labels.jsonl中检索
         labels_file = os.path.join(
@@ -3284,23 +3438,43 @@ def create_app():
                 post_ids_found = set()  # 用于去重
                 has_matched_results = False  # 标记是否有真正的匹配结果
                 
-                # 2.1 搜索帖子内容（改进：使用多个关键词OR查询，同时支持完整查询匹配）
-                content_conditions = []
-                # 添加完整查询匹配（优先级更高）
-                if query and len(query.strip()) > 1:
-                    content_conditions.append(Post.content.like(f"%{query}%"))
-                # 添加关键词匹配
-                if query_words:
-                    for word in query_words:
-                        if len(word) > 1:
-                            content_conditions.append(Post.content.like(f"%{word}%"))
+                # 2.1 搜索帖子内容（改进：优先匹配同时包含所有关键词的帖子）
+                content_posts = []
                 
-                if content_conditions:
-                    content_posts = Post.query.filter(
-                        or_(*content_conditions)
-                    ).limit(limit * 3).all()
-                else:
-                    content_posts = []
+                # 优先：匹配同时包含所有关键词的帖子（AND查询）
+                if query_words and len(query_words) > 1:
+                    # 构建AND条件：所有关键词都必须匹配
+                    and_conditions = [Post.content.like(f"%{word}%") for word in query_words if len(word) > 1]
+                    if and_conditions:
+                        # 使用AND查询，确保所有关键词都匹配（增加搜索数量）
+                        and_posts = Post.query.filter(
+                            and_(*and_conditions)
+                        ).limit(limit * 5).all()  # 从limit * 3增加到limit * 5
+                        content_posts.extend(and_posts)
+                        print(f"[RAG调试] AND查询（同时匹配所有关键词）找到 {len(and_posts)} 个帖子")
+                
+                # 如果AND查询结果不足，再使用OR查询（匹配部分关键词）
+                if len(content_posts) < limit * 3:  # 从limit * 2增加到limit * 3
+                    content_conditions = []
+                    # 添加完整查询匹配（优先级更高）
+                    if query and len(query.strip()) > 1:
+                        content_conditions.append(Post.content.like(f"%{query}%"))
+                    # 添加关键词匹配
+                    if query_words:
+                        for word in query_words:
+                            if len(word) > 1:
+                                content_conditions.append(Post.content.like(f"%{word}%"))
+                    
+                    if content_conditions:
+                        or_posts = Post.query.filter(
+                            or_(*content_conditions)
+                        ).limit(limit * 5).all()  # 从limit * 3增加到limit * 5
+                        # 只添加不在AND结果中的帖子
+                        existing_ids = {p.id for p in content_posts}
+                        for post in or_posts:
+                            if post.id not in existing_ids:
+                                content_posts.append(post)
+                        print(f"[RAG调试] OR查询（匹配部分关键词）额外找到 {len([p for p in or_posts if p.id not in existing_ids])} 个帖子")
                 
                 for post in content_posts:
                     if post.id not in post_ids_found:
@@ -3312,16 +3486,94 @@ def create_app():
                         ).all()
                         tag_names = [tag[0] for tag in post_tags]
                         
-                        # 计算匹配分数（改进：完整查询匹配分数更高）
+                        # 计算匹配分数（改进：优先匹配所有关键词的帖子分数更高）
                         match_score = 2
                         content_lower = post.content.lower()
+                        
                         # 完整查询匹配分数最高
                         if query and query.lower() in content_lower:
-                            match_score += 5
-                        # 关键词匹配
+                            match_score += 10  # 提高完整查询匹配分数
+                        
+                        # 关键词匹配（多个关键词匹配时分数累加）
+                        matched_keywords = 0
                         for word in query_words:
                             if word in content_lower:
-                                match_score += 2  # 提高关键词匹配分数
+                                matched_keywords += 1
+                                match_score += 3  # 提高关键词匹配分数
+                        
+                        # 如果所有关键词都匹配，大幅额外加分（说明匹配度最高）
+                        if matched_keywords == len(query_words) and len(query_words) > 1:
+                            match_score += matched_keywords * 5  # 所有关键词都匹配时大幅加分
+                        elif matched_keywords > 1:
+                            match_score += matched_keywords * 2  # 部分关键词匹配时适度加分
+                        
+                        # 检查标签是否也匹配（如果标签匹配，额外加分）
+                        if tag_names:
+                            tag_match_count = 0
+                            query_lower = query.lower()
+                            tag_names_lower = [tag.lower() for tag in tag_names]
+                            
+                            # 物品类型优先级判断：优先匹配直接包含物品类型的帖子
+                            is_item_type_match = False  # 是否直接匹配物品类型
+                            is_suit_type = False  # 是否是套装类型
+                            
+                            # 检查帖子标签中是否包含物品类型关键词
+                            if query_item_types:
+                                for item_type in query_item_types:
+                                    for tag in tag_names_lower:
+                                        if item_type in tag or tag in item_type:
+                                            is_item_type_match = True
+                                            match_score += 15  # 直接匹配物品类型，大幅加分
+                                            print(f"[RAG调试] 帖子{post.id}标签直接匹配物品类型: {item_type} (标签: {tag})")
+                                            break
+                                    if is_item_type_match:
+                                        break
+                            
+                            # 检查帖子标签中是否包含套装关键词
+                            for suit_kw in suit_keywords:
+                                if any(suit_kw.lower() in tag for tag in tag_names_lower):
+                                    is_suit_type = True
+                                    break
+                            
+                            # 如果帖子是套装类型，但不是直接匹配物品类型，则降低分数
+                            if is_suit_type and not is_item_type_match and query_item_types:
+                                match_score -= 10  # 套装类型但不是直接匹配物品类型，降低分数
+                                print(f"[RAG调试] 帖子{post.id}是套装类型但不是直接匹配物品类型，降低分数")
+                            
+                            # 检查帖子内容是否主要描述查询的物品类型
+                            if query_item_types:
+                                is_focused, item_type_count, other_main_items_count = is_content_focused_on_item_type(
+                                    post.content, query_item_types, main_item_keywords
+                                )
+                                # 检查是否是穿搭帖子
+                                content_lower = post.content.lower() if post.content else ""
+                                outfit_keywords = ["穿搭", "搭配", "今日穿搭", "outfit", "look", "style", "今日look"]
+                                is_outfit_post = any(keyword in content_lower for keyword in outfit_keywords)
+                                
+                                if is_outfit_post and other_main_items_count >= item_type_count and other_main_items_count > 0:
+                                    # 如果是穿搭帖子，且其他主要物品类型出现次数 >= 查询物品类型出现次数，说明不是专门推荐该物品的帖子
+                                    match_score -= 25  # 大幅降低分数，因为这是穿搭帖子，不是专门推荐该物品的
+                                    print(f"[RAG调试] 帖子{post.id}是穿搭帖子，其他物品出现{other_main_items_count}次，查询物品类型出现{item_type_count}次，降低分数")
+                                elif not is_focused and other_main_items_count > item_type_count:
+                                    # 如果内容主要描述其他物品类型，而查询的物品类型只是作为配饰提到，大幅降低分数
+                                    match_score -= 25  # 大幅降低分数，因为内容主要描述其他物品
+                                    print(f"[RAG调试] 帖子{post.id}内容主要描述其他物品（出现{other_main_items_count}次），查询物品类型只出现{item_type_count}次，降低分数")
+                                elif is_focused and item_type_count >= 2:
+                                    # 如果内容主要描述查询的物品类型，额外加分
+                                    match_score += 10  # 内容主要描述该物品类型，额外加分
+                                    print(f"[RAG调试] 帖子{post.id}内容主要描述查询物品类型（出现{item_type_count}次），额外加分")
+                            
+                            # 检查完整查询是否在标签中
+                            if any(query_lower in tag or tag in query_lower for tag in tag_names_lower):
+                                match_score += 5  # 标签也匹配时额外加分
+                            # 检查关键词是否在标签中
+                            for word in query_words:
+                                if any(word in tag for tag in tag_names_lower):
+                                    tag_match_count += 1
+                                    match_score += 3  # 标签匹配关键词时额外加分
+                            # 如果多个关键词都在标签中匹配，额外加分
+                            if tag_match_count > 1:
+                                match_score += tag_match_count * 2
                         
                         # 天气匹配加分（如果帖子标签或内容匹配天气关键词）
                         if weather_keywords and tag_names:
@@ -3336,14 +3588,21 @@ def create_app():
                                     break
                         
                         # 用户标签偏好匹配加分（如果帖子标签匹配用户偏好）
+                        # 当用户明确指定需求时，降低偏好标签的影响，确保查询匹配优先
                         if user_preferred_tags and tag_names:
                             matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
                             if matched_preferred_tags:
-                                match_score += len(matched_preferred_tags) * 2  # 每个匹配的偏好标签加2分
-                                print(f"[RAG调试] 帖子{post.id}匹配用户偏好标签: {matched_preferred_tags}")
+                                if has_explicit_query:
+                                    # 有明确需求时，偏好标签加分降低（从2分降到0.5分）
+                                    match_score += len(matched_preferred_tags) * 0.5
+                                    print(f"[RAG调试] 帖子{post.id}匹配用户偏好标签（已降低影响）: {matched_preferred_tags}")
+                                else:
+                                    # 没有明确需求时，保持原有偏好标签加分
+                                    match_score += len(matched_preferred_tags) * 2  # 每个匹配的偏好标签加2分
+                                    print(f"[RAG调试] 帖子{post.id}匹配用户偏好标签: {matched_preferred_tags}")
                         
                         # 获取用户信息
-                        user = User.query.get(post.user_id)
+                        user = db.session.get(User, post.user_id)
                         
                         results.append({
                             "post_id": post.id,
@@ -3359,9 +3618,22 @@ def create_app():
                 
                 print(f"[RAG调试] 内容搜索找到 {len([r for r in results if r.get('type') == 'post'])} 个帖子")
                 
-                # 2.2 如果结果不足，基于标签搜索（改进：更灵活的标签匹配，综合查询、天气、用户偏好）
-                if len([r for r in results if r.get("type") == "post"]) < limit:
-                    # 构建标签匹配条件：支持完整查询、关键词、天气关键词、用户偏好标签匹配
+                # 2.2 同时搜索标签（改进：优先匹配同时包含所有关键词的标签）
+                tag_posts = []
+                matching_tags = []
+                
+                # 优先：匹配同时包含所有关键词的标签（AND查询）
+                if query_words and len(query_words) > 1:
+                    and_tag_conditions = [Tag.name.like(f"%{word}%") for word in query_words if len(word) > 1]
+                    if and_tag_conditions:
+                        and_tags = Tag.query.filter(
+                            and_(*and_tag_conditions)
+                        ).limit(30).all()
+                        matching_tags.extend(and_tags)
+                        print(f"[RAG调试] AND标签查询（同时匹配所有关键词）找到 {len(and_tags)} 个标签")
+                
+                # 如果AND查询结果不足，再使用OR查询（匹配部分关键词）
+                if len(matching_tags) < 10:
                     tag_conditions = []
                     # 添加完整查询匹配
                     if query and len(query.strip()) > 1:
@@ -3376,7 +3648,8 @@ def create_app():
                         for weather_kw in weather_keywords:
                             tag_conditions.append(Tag.name.like(f"%{weather_kw}%"))
                     # 添加用户偏好标签匹配（优先匹配用户喜欢的标签）
-                    if user_preferred_tags:
+                    # 当用户明确指定需求时，不添加偏好标签到搜索条件，确保查询匹配优先
+                    if user_preferred_tags and not has_explicit_query:
                         for pref_tag in user_preferred_tags[:10]:  # 限制数量避免查询过大
                             tag_conditions.append(Tag.name.like(f"%{pref_tag}%"))
                     
@@ -3388,72 +3661,146 @@ def create_app():
                                 tag_conditions.append(Tag.name.like(f"%{char}%"))
                     
                     if tag_conditions:
-                        matching_tags = Tag.query.filter(
+                        or_tags = Tag.query.filter(
                             or_(*tag_conditions)
                         ).limit(30).all()
+                        # 只添加不在AND结果中的标签
+                        existing_tag_names = {tag.name for tag in matching_tags}
+                        for tag in or_tags:
+                            if tag.name not in existing_tag_names:
+                                matching_tags.append(tag)
+                        print(f"[RAG调试] OR标签查询（匹配部分关键词）额外找到 {len([t for t in or_tags if t.name not in existing_tag_names])} 个标签")
+                
+                if matching_tags:
+                    tag_names_list = [tag.name for tag in matching_tags]
+                    print(f"[RAG调试] 找到匹配标签: {tag_names_list[:10]}")
+                    # 查找有这些标签的帖子（增加搜索数量）
+                    tag_posts = Post.query.join(PostTag).join(Tag).filter(
+                        Tag.name.in_(tag_names_list)
+                    ).distinct().limit(limit * 5).all()  # 从limit * 3增加到limit * 5
+                
+                # 处理找到的标签帖子（标签匹配通常更准确，给予更高基础分数）
+                for post in tag_posts:
+                    if post.id not in post_ids_found:
+                        post_ids_found.add(post.id)
+                        has_matched_results = True
+                        # 获取帖子标签
+                        post_tags = db.session.query(Tag.name).join(PostTag).filter(
+                            PostTag.post_id == post.id
+                        ).all()
+                        tag_names = [tag[0] for tag in post_tags]
                         
-                        if matching_tags:
-                            tag_names_list = [tag.name for tag in matching_tags]
-                            print(f"[RAG调试] 找到匹配标签: {tag_names_list[:10]}")
-                            # 查找有这些标签的帖子
-                            tag_posts = Post.query.join(PostTag).join(Tag).filter(
-                                Tag.name.in_(tag_names_list)
-                            ).distinct().limit(limit * 3).all()
-                        else:
-                            tag_posts = []
-                    else:
-                        tag_posts = []
-                    
-                    # 处理找到的标签帖子
-                    for post in tag_posts:
-                        if post.id not in post_ids_found and len([r for r in results if r.get("type") == "post"]) < limit:
-                            post_ids_found.add(post.id)
-                            has_matched_results = True
-                            # 获取帖子标签
-                            post_tags = db.session.query(Tag.name).join(PostTag).filter(
-                                PostTag.post_id == post.id
-                            ).all()
-                            tag_names = [tag[0] for tag in post_tags]
-                            
-                            # 计算匹配分数（改进：完整查询匹配和关键词匹配）
-                            match_score = 1
-                            # 检查完整查询是否在标签中
-                            if query:
-                                query_lower = query.lower()
-                                if any(query_lower in tag.lower() or tag.lower() in query_lower for tag in tag_names):
-                                    match_score += 3  # 完整匹配分数更高
-                            # 关键词匹配
-                            for word in query_words:
-                                if any(word in tag.lower() for tag in tag_names):
-                                    match_score += 1  # 提高关键词匹配分数
-                            
-                            # 天气匹配加分（如果帖子标签匹配天气关键词）
-                            if weather_keywords and tag_names:
-                                for weather_kw in weather_keywords:
-                                    if any(weather_kw in tag.lower() or tag.lower() in weather_kw for tag in tag_names):
-                                        match_score += 3  # 天气匹配加分
+                        # 计算匹配分数（改进：标签匹配基础分数更高，优先匹配所有关键词的标签分数更高）
+                        match_score = 5  # 标签匹配基础分数更高（比内容匹配的2分更高）
+                        tag_names_lower = [tag.lower() for tag in tag_names]
+                        
+                        # 物品类型优先级判断：优先匹配直接包含物品类型的帖子
+                        is_item_type_match = False  # 是否直接匹配物品类型
+                        is_suit_type = False  # 是否是套装类型
+                        
+                        # 检查帖子标签中是否包含物品类型关键词
+                        if query_item_types:
+                            for item_type in query_item_types:
+                                for tag in tag_names_lower:
+                                    if item_type in tag or tag in item_type:
+                                        is_item_type_match = True
+                                        match_score += 20  # 标签直接匹配物品类型，大幅加分（比内容匹配更高）
+                                        print(f"[RAG调试] 帖子{post.id}标签直接匹配物品类型: {item_type} (标签: {tag})")
                                         break
+                                if is_item_type_match:
+                                    break
+                        
+                        # 检查帖子标签中是否包含套装关键词
+                        for suit_kw in suit_keywords:
+                            if any(suit_kw.lower() in tag for tag in tag_names_lower):
+                                is_suit_type = True
+                                break
+                        
+                        # 如果帖子是套装类型，但不是直接匹配物品类型，则降低分数
+                        if is_suit_type and not is_item_type_match and query_item_types:
+                            match_score -= 12  # 套装类型但不是直接匹配物品类型，降低分数（标签搜索中降低更多）
+                            print(f"[RAG调试] 帖子{post.id}是套装类型但不是直接匹配物品类型，降低分数")
+                        
+                        # 检查帖子内容是否主要描述查询的物品类型
+                        if query_item_types:
+                            is_focused, item_type_count, other_main_items_count = is_content_focused_on_item_type(
+                                post.content, query_item_types, main_item_keywords
+                            )
+                            # 检查是否是穿搭帖子
+                            content_lower = post.content.lower() if post.content else ""
+                            outfit_keywords = ["穿搭", "搭配", "今日穿搭", "outfit", "look", "style", "今日look"]
+                            is_outfit_post = any(keyword in content_lower for keyword in outfit_keywords)
                             
-                            # 用户标签偏好匹配加分（如果帖子标签匹配用户偏好）
-                            if user_preferred_tags and tag_names:
-                                matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
-                                if matched_preferred_tags:
+                            if is_outfit_post and other_main_items_count >= item_type_count and other_main_items_count > 0:
+                                # 如果是穿搭帖子，且其他主要物品类型出现次数 >= 查询物品类型出现次数，说明不是专门推荐该物品的帖子
+                                match_score -= 35  # 标签搜索中降低更多，因为标签匹配但这是穿搭帖子
+                                print(f"[RAG调试] 帖子{post.id}标签匹配但是穿搭帖子，其他物品出现{other_main_items_count}次，查询物品类型出现{item_type_count}次，大幅降低分数")
+                            elif not is_focused and other_main_items_count > item_type_count:
+                                # 如果内容主要描述其他物品类型，而查询的物品类型只是作为配饰提到，大幅降低分数
+                                match_score -= 30  # 标签搜索中降低更多，因为标签匹配但内容不匹配
+                                print(f"[RAG调试] 帖子{post.id}标签匹配但内容主要描述其他物品（出现{other_main_items_count}次），查询物品类型只出现{item_type_count}次，大幅降低分数")
+                            elif is_focused and item_type_count >= 2:
+                                # 如果内容主要描述查询的物品类型，额外加分
+                                match_score += 15  # 标签匹配且内容主要描述该物品类型，大幅加分
+                                print(f"[RAG调试] 帖子{post.id}标签匹配且内容主要描述查询物品类型（出现{item_type_count}次），大幅加分")
+                        
+                        # 检查完整查询是否在标签中
+                        if query:
+                            query_lower = query.lower()
+                            # 检查是否有标签完全匹配查询
+                            if any(query_lower == tag for tag in tag_names_lower):
+                                match_score += 15  # 完全匹配分数最高
+                            elif any(query_lower in tag or tag in query_lower for tag in tag_names_lower):
+                                match_score += 8  # 部分匹配分数较高
+                        # 关键词匹配（多个关键词匹配时分数累加）
+                        matched_keywords = 0
+                        for word in query_words:
+                            if any(word in tag for tag in tag_names_lower):
+                                matched_keywords += 1
+                                match_score += 4  # 每个匹配的关键词加4分
+                        
+                        # 如果所有关键词都匹配，大幅额外加分（说明匹配度最高）
+                        if matched_keywords == len(query_words) and len(query_words) > 1:
+                            match_score += matched_keywords * 6  # 所有关键词都匹配时大幅加分
+                        elif matched_keywords > 1:
+                            match_score += matched_keywords * 2  # 部分关键词匹配时适度加分
+                        
+                        # 天气匹配加分（如果帖子标签匹配天气关键词）
+                        if weather_keywords and tag_names:
+                            for weather_kw in weather_keywords:
+                                if any(weather_kw in tag.lower() or tag.lower() in weather_kw for tag in tag_names):
+                                    match_score += 3  # 天气匹配加分
+                                    break
+                        
+                        # 用户标签偏好匹配加分（如果帖子标签匹配用户偏好）
+                        # 当用户明确指定需求时，降低偏好标签的影响，确保查询匹配优先
+                        if user_preferred_tags and tag_names:
+                            matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
+                            if matched_preferred_tags:
+                                if has_explicit_query:
+                                    # 有明确需求时，偏好标签加分降低（从2分降到0.5分）
+                                    match_score += len(matched_preferred_tags) * 0.5
+                                else:
+                                    # 没有明确需求时，保持原有偏好标签加分
                                     match_score += len(matched_preferred_tags) * 2  # 每个匹配的偏好标签加2分
-                            
-                            # 获取用户信息
-                            user = User.query.get(post.user_id)
-                            
-                            results.append({
-                                "post_id": post.id,
-                                "image_path": post.image_path,
-                                "content": post.content,
-                                "user_id": post.user_id,
-                                "user_nickname": user.nickname if user else None,
-                                "tags": tag_names,
-                                "type": "post",
-                                "score": match_score,  # 标签匹配分数
-                                "recommendation_type": "recommended"  # 标记为推荐
-                            })
+                        
+                        # 获取用户信息
+                        user = db.session.get(User, post.user_id)
+                        
+                        results.append({
+                            "post_id": post.id,
+                            "image_path": post.image_path,
+                            "content": post.content,
+                            "user_id": post.user_id,
+                            "user_nickname": user.nickname if user else None,
+                            "tags": tag_names,
+                            "type": "post",
+                            "score": match_score,  # 标签匹配分数
+                            "recommendation_type": "recommended"  # 标记为推荐
+                        })
+                
+                tag_search_count = len([r for r in results if r.get('type') == 'post' and r.get('score', 0) >= 5])
+                print(f"[RAG调试] 标签搜索找到 {tag_search_count} 个帖子")
                 
                 # 2.3 如果结果仍然不足且有天气信息，基于天气标签推荐
                 if weather_info and weather_keywords and len([r for r in results if r.get("type") == "post"]) < limit:
@@ -3482,13 +3829,19 @@ def create_app():
                                     # 计算天气匹配分数
                                     weather_match_score = 1.5
                                     # 用户标签偏好匹配加分
+                                    # 当用户明确指定需求时，降低偏好标签的影响，确保查询匹配优先
                                     if user_preferred_tags and tag_names:
                                         matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
                                         if matched_preferred_tags:
-                                            weather_match_score += len(matched_preferred_tags) * 2
+                                            if has_explicit_query:
+                                                # 有明确需求时，偏好标签加分降低（从2分降到0.5分）
+                                                weather_match_score += len(matched_preferred_tags) * 0.5
+                                            else:
+                                                # 没有明确需求时，保持原有偏好标签加分
+                                                weather_match_score += len(matched_preferred_tags) * 2
                                     
                                     # 获取用户信息
-                                    user = User.query.get(post.user_id)
+                                    user = db.session.get(User, post.user_id)
                                     
                                     results.append({
                                         "post_id": post.id,
@@ -3521,7 +3874,7 @@ def create_app():
                             tag_names = [tag[0] for tag in post_tags]
                             
                             # 获取用户信息
-                            user = User.query.get(post.user_id)
+                            user = db.session.get(User, post.user_id)
                             
                             results.append({
                                 "post_id": post.id,
@@ -3540,8 +3893,16 @@ def create_app():
                 import traceback
                 traceback.print_exc()
         
-        # 按分数排序，确保高质量结果在前
-        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        # 按推荐类型和分数排序，确保满足条件的帖子优先
+        # 优先返回"recommended"类型的帖子，然后再返回"hot"类型的帖子
+        # 在同一类型内，按分数排序
+        results.sort(
+            key=lambda x: (
+                x.get("recommendation_type") != "hot",  # "recommended"类型排在前面（True > False）
+                x.get("score", 0)
+            ),
+            reverse=True
+        )
         
         # 记录帖子结果用于调试
         post_results = [r for r in results if r.get("type") == "post"]
@@ -3565,7 +3926,8 @@ def create_app():
         
         # 返回所有结果（包括dataset和post），供LLM使用
         # extract_recommendations函数会只提取post类型的结果
-        return results[:limit * 2]  # 返回更多结果，让LLM有更多上下文
+        # 增加返回数量，确保更多满足条件的帖子能被返回
+        return results[:limit * 3]  # 从limit * 2增加到limit * 3，返回更多结果
     
     # 清理Markdown格式，使文本更美观
     def clean_markdown(text):
@@ -3745,21 +4107,35 @@ def create_app():
         post_ids = []
         user_ids = []
         post_recommendation_types = {}  # {post_id: "recommended" or "hot"}
+        post_scores = {}  # {post_id: score} 用于排序
         
         # 只从RAG结果中提取（这些是实际检索到的，确保准确性）
-        for result in rag_results:
-            if result.get("type") == "post":
-                post_id = result.get("post_id")
-                if post_id and post_id not in post_ids:
-                    post_ids.append(post_id)
-                    # 记录推荐类型
-                    recommendation_type = result.get("recommendation_type", "recommended")
-                    post_recommendation_types[post_id] = recommendation_type
-                user_id = result.get("user_id")
-                if user_id and user_id not in user_ids:
-                    user_ids.append(user_id)
+        # 按分数排序，确保满足条件的帖子优先
+        sorted_results = sorted(
+            [r for r in rag_results if r.get("type") == "post"],
+            key=lambda x: (x.get("recommendation_type") != "hot", x.get("score", 0)),  # 优先返回"recommended"类型，然后按分数排序
+            reverse=True
+        )
         
-        # 去重并返回
+        for result in sorted_results:
+            post_id = result.get("post_id")
+            if post_id and post_id not in post_ids:
+                post_ids.append(post_id)
+                # 记录推荐类型
+                recommendation_type = result.get("recommendation_type", "recommended")
+                post_recommendation_types[post_id] = recommendation_type
+                # 记录分数（用于调试）
+                post_scores[post_id] = result.get("score", 0)
+            user_id = result.get("user_id")
+            if user_id and user_id not in user_ids:
+                user_ids.append(user_id)
+        
+        # 打印调试信息
+        if post_ids:
+            print(f"[推荐提取] 提取到 {len(post_ids)} 个帖子")
+            print(f"[推荐提取] 前5个帖子ID和类型: {[(pid, post_recommendation_types.get(pid, 'unknown'), post_scores.get(pid, 0)) for pid in post_ids[:5]]}")
+        
+        # 去重并返回（已按优先级排序）
         return post_ids, user_ids, post_recommendation_types
     
     # 聊天API端点
@@ -3832,9 +4208,23 @@ def create_app():
                 reply += "\n\n目前还没有相关的帖子推荐，您可以进行自行搭配，或者尝试更具体的描述。"
             
             # 构建响应，包含推荐类型信息
+            # 优先返回"recommended"类型的帖子，然后再返回"hot"类型的帖子
+            recommended_posts_sorted = []
+            hot_posts_sorted = []
+            
+            for post_id in recommended_post_ids:
+                recommendation_type = post_recommendation_types.get(post_id, "recommended")
+                if recommendation_type == "recommended":
+                    recommended_posts_sorted.append(post_id)
+                else:
+                    hot_posts_sorted.append(post_id)
+            
+            # 合并：先返回推荐的，再返回热门的
+            final_post_ids = recommended_posts_sorted + hot_posts_sorted
+            
             # 将post_ids转换为包含推荐类型的对象列表
             recommended_posts_with_type = []
-            for post_id in recommended_post_ids[:10]:
+            for post_id in final_post_ids[:15]:  # 增加返回数量从10到15，确保更多满足条件的帖子能被返回
                 recommended_posts_with_type.append({
                     "post_id": post_id,
                     "recommendation_type": post_recommendation_types.get(post_id, "recommended")
@@ -3844,7 +4234,7 @@ def create_app():
                 "ok": True,
                 "reply": reply,
                 "conversation_id": conversation_id or f"conv_{user_id}_{int(datetime.utcnow().timestamp())}",
-                "recommended_posts": recommended_post_ids[:10],  # 保持向后兼容，返回ID列表
+                "recommended_posts": final_post_ids[:15],  # 保持向后兼容，返回ID列表（增加到15个）
                 "recommended_posts_detail": recommended_posts_with_type,  # 新增：包含推荐类型的详细信息
                 "recommended_users": recommended_user_ids[:10]   # 最多返回10个
             }
