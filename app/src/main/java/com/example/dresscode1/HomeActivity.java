@@ -25,6 +25,7 @@ import android.provider.MediaStore;
 import android.content.ContentValues;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Environment;
 import java.io.File;
@@ -34,6 +35,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -1502,6 +1504,50 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
             public void afterTextChanged(Editable s) {
             }
         });
+
+        // 监听输入框焦点变化，当获得焦点时滚动到底部
+        etChatMessage.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                // 延迟一下，等待键盘弹出
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    scrollChatToBottom();
+                    // 确保输入框可见，滚动到输入框位置
+                    etChatMessage.requestFocus();
+                }, 100);
+            }
+        });
+
+        // 监听键盘显示/隐藏，动态调整布局
+        final View rootView = findViewById(android.R.id.content);
+        final ViewTreeObserver.OnGlobalLayoutListener keyboardLayoutListener = new ViewTreeObserver.OnGlobalLayoutListener() {
+            private boolean isKeyboardShowing = false;
+
+            @Override
+            public void onGlobalLayout() {
+                Rect r = new Rect();
+                rootView.getWindowVisibleDisplayFrame(r);
+                int screenHeight = rootView.getRootView().getHeight();
+                int keypadHeight = screenHeight - r.bottom;
+
+                // 如果键盘高度超过屏幕的15%，认为键盘已显示
+                boolean keyboardVisible = keypadHeight > screenHeight * 0.15;
+                
+                if (keyboardVisible && !isKeyboardShowing) {
+                    // 键盘刚显示
+                    isKeyboardShowing = true;
+                    // 延迟滚动，等待布局调整完成
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        scrollChatToBottom();
+                        // 确保输入框可见
+                        etChatMessage.requestFocus();
+                    }, 100);
+                } else if (!keyboardVisible && isKeyboardShowing) {
+                    // 键盘刚隐藏
+                    isKeyboardShowing = false;
+                }
+            }
+        };
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
     }
 
     private void sendWelcomeMessage() {
