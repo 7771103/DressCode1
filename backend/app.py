@@ -19,6 +19,13 @@ from dotenv import load_dotenv
 # 加载 .env 文件
 load_dotenv()
 
+# 检查通义千问API配置（用于AI打标签）
+# 现在使用HTTP API调用，不再需要dashscope库
+qwen_api_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+DASHSCOPE_AVAILABLE = bool(qwen_api_key)
+if not DASHSCOPE_AVAILABLE:
+    print("警告: QWEN_API_KEY 未配置，AI打标签功能将不可用")
+
 
 def create_app():
     app = Flask(__name__)
@@ -105,10 +112,10 @@ def create_app():
 
     # 加载图片标签数据（用于性别过滤）
     _labels_cache = None
-    def load_image_labels():
+    def load_image_labels(force_reload=False):
         """加载图片标签数据，返回以image_path为key的字典"""
         nonlocal _labels_cache
-        if _labels_cache is not None:
+        if _labels_cache is not None and not force_reload:
             return _labels_cache
         
         labels_file = os.path.join(
@@ -133,6 +140,241 @@ def create_app():
                 print(f"加载标签数据失败: {e}")
         
         return _labels_cache
+    
+    def map_user_tags_to_weather(user_tags):
+        """
+        将用户选择的标签映射到标准大类（weather字段）
+        
+        重要说明：
+        - 此函数仅用于将用户标签映射到标准大类，不影响用户标签本身
+        - 映射后的标签用于推荐系统的筛选，用户标签保持不变
+        例如："夏" -> ["夏季", "高温", "晴朗"]
+        """
+        if not user_tags or not isinstance(user_tags, list):
+            return []
+        
+        weather_mapping = {
+            # 季节标签
+            "春": ["春季", "温和", "多云"],
+            "夏": ["夏季", "高温", "晴朗"],
+            "秋": ["秋季", "凉爽", "多云"],
+            "冬": ["冬季", "寒冷", "雪天"],
+            "春季": ["春季", "温和", "多云"],
+            "夏季": ["夏季", "高温", "晴朗"],
+            "秋季": ["秋季", "凉爽", "多云"],
+            "冬季": ["冬季", "寒冷", "雪天"],
+            # 天气标签
+            "晴": ["晴朗"],
+            "雨": ["雨天"],
+            "雪": ["雪天"],
+            "阴": ["阴天"],
+            "多云": ["多云"],
+            "晴朗": ["晴朗"],
+            "雨天": ["雨天"],
+            "雪天": ["雪天"],
+            "阴天": ["阴天"],
+            # 温度相关
+            "高温": ["高温", "夏季"],
+            "温暖": ["温暖", "春季"],
+            "凉爽": ["凉爽", "秋季"],
+            "寒冷": ["寒冷", "冬季"],
+        }
+        
+        weather_tags = []
+        for tag in user_tags:
+            tag_lower = tag.strip().lower()
+            tag_original = tag.strip()
+            # 尝试匹配（不区分大小写）
+            for key, values in weather_mapping.items():
+                if key.lower() == tag_lower or tag_lower in key.lower() or key.lower() in tag_lower:
+                    weather_tags.extend(values)
+                    break
+        
+        # 去重
+        return list(set(weather_tags))
+    
+    def generate_ai_labels(image_path, user_tags=None):
+        """
+        使用通义千问大模型为图片生成标准大类标签（gender, weather, age_group, season等）
+        
+        重要说明：
+        - 用户标签（tags）保持不变，不影响用户标签的数量和内容
+        - AI标签仅用于映射到标准大类，保存到labels.jsonl供推荐系统使用
+        - 用户标签会通过map_user_tags_to_weather映射到weather字段，作为AI识别的补充
+        
+        image_path: 图片路径（相对路径，如 /static/posts/xxx.jpg）
+        user_tags: 用户选择的标签列表，用于映射到标准大类（不改变用户标签本身）
+        返回: 标签字典，格式与labels.jsonl一致
+        """
+        qwen_api_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+        if not qwen_api_key:
+            print("警告: QWEN_API_KEY 未配置，跳过AI打标签")
+            return None
+        
+        try:
+            # 将相对路径转换为绝对路径
+            if image_path.startswith("/static/posts/"):
+                # 帖子图片
+                filename = image_path.replace("/static/posts/", "")
+                full_path = os.path.join(posts_images_path, filename)
+            elif image_path.startswith("/static/images/"):
+                # 数据集图片
+                relative_path = image_path.replace("/static/images/", "")
+                full_path = os.path.join(dataset_images_path, relative_path)
+            else:
+                print(f"无法识别的图片路径格式: {image_path}")
+                return None
+            
+            if not os.path.exists(full_path):
+                print(f"图片文件不存在: {full_path}")
+                return None
+            
+            # 读取prompt文件
+            prompt_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "dataset", "configs", "prompt.md"
+            )
+            if not os.path.exists(prompt_file):
+                print(f"Prompt文件不存在: {prompt_file}")
+                return None
+            
+            with open(prompt_file, "r", encoding="utf-8") as f:
+                prompt = f.read().strip()
+            
+            # 获取模型配置（优先使用QWEN_VL_MODEL，默认qwen-vl-max）
+            qwen_vl_model = os.getenv("QWEN_VL_MODEL", "qwen-vl-max").strip()
+            qwen_api_key = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+            qwen_api_url = os.getenv("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+            
+            if not qwen_api_key:
+                print("警告: QWEN_API_KEY 未配置，无法调用AI打标签")
+                return None
+            
+            # 读取图片并转换为base64
+            with open(full_path, "rb") as img_file:
+                image_data = img_file.read()
+                image_base64 = base64.b64encode(image_data).decode("utf-8")
+            
+            # 调用通义千问API（使用HTTP API，与物品识别和智能回答保持一致）
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_base64}"
+                            }
+                        }
+                    ],
+                }
+            ]
+            
+            payload = {
+                "model": qwen_vl_model,
+                "messages": messages,
+                "temperature": 0.2,
+                "top_p": 0.7,
+                "max_tokens": 1024,
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {qwen_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(qwen_api_url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code != 200:
+                print(f"AI打标签API调用失败，状态码: {response.status_code}")
+                print(f"响应: {response.text[:200]}")
+                return None
+            
+            # 提取响应文本
+            result = response.json()
+            text = None
+            if "choices" in result and len(result["choices"]) > 0:
+                message = result["choices"][0].get("message", {})
+                content = message.get("content", "")
+                if isinstance(content, str):
+                    text = content.strip()
+                elif isinstance(content, list) and content:
+                    # 处理多模态返回格式
+                    for item in content:
+                        if item.get("type") == "text":
+                            text = item.get("text", "").strip()
+                            break
+            
+            if not text:
+                print("AI返回内容为空")
+                return None
+            
+            # 清理文本（移除markdown代码块标记）
+            text = text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            elif text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+            
+            # 解析JSON
+            try:
+                label_data = json.loads(text)
+            except json.JSONDecodeError as e:
+                print(f"解析AI返回的JSON失败: {e}")
+                print(f"返回内容: {text[:200]}")
+                return None
+            
+            # 确保包含image_path
+            label_data["image_path"] = image_path
+            
+            # 如果用户提供了标签，将用户标签映射到标准大类（weather字段）
+            # 注意：这里只是将用户标签映射到标准大类，不影响用户标签本身
+            if user_tags:
+                mapped_weather_tags = map_user_tags_to_weather(user_tags)
+                if mapped_weather_tags:
+                    # 合并用户标签映射结果和AI识别的天气标签
+                    existing_weather = label_data.get("weather", [])
+                    if not isinstance(existing_weather, list):
+                        existing_weather = []
+                    # 合并并去重
+                    all_weather = list(set(existing_weather + mapped_weather_tags))
+                    label_data["weather"] = all_weather
+            
+            return label_data
+            
+        except Exception as e:
+            print(f"AI打标签失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def save_label_to_jsonl(label_data):
+        """
+        将标签数据追加到labels.jsonl文件
+        """
+        labels_file = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "dataset", "data", "labels.jsonl"
+        )
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(labels_file), exist_ok=True)
+        
+        try:
+            # 追加到文件
+            with open(labels_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(label_data, ensure_ascii=False) + "\n")
+            
+            # 清除缓存，强制重新加载
+            nonlocal _labels_cache
+            _labels_cache = None
+            
+            return True
+        except Exception as e:
+            print(f"保存标签到文件失败: {e}")
+            return False
     
     def get_post_gender(image_path):
         """根据图片路径获取帖子的性别标签"""
@@ -886,10 +1128,9 @@ def create_app():
         # 排除未来的日期（防止错误数据）
         now = datetime.utcnow()
         query = query.filter(Post.created_at <= now)
-        # 综合排序：优先按时间降序（新帖子优先），然后按综合分数降序（互动多的优先）
-        # 这样新发布的帖子会优先显示，相同时间段的帖子按互动数排序
+        # 首页推荐不再按时间优先，只按互动热度进行基础排序
+        # 这样列表的主顺序由“推荐匹配 + 互动度”决定，而不是“谁最新发”
         query = query.order_by(
-            Post.created_at.desc(),
             (Post.like_count + Post.collect_count * 2).desc()
         )
 
@@ -2167,6 +2408,24 @@ def create_app():
                         tag_names.append(tag_name)
 
         db.session.commit()
+
+        # 异步调用AI打标签（不阻塞响应）
+        # 注意：用户标签（tags）已保存到PostTag表，保持不变
+        # AI标签仅用于映射到标准大类（gender, weather, age_group, season），保存到labels.jsonl供推荐使用
+        try:
+            # 检查是否已有标签记录
+            labels = load_image_labels()
+            if image_path not in labels:
+                # 调用通义千问大模型生成标准大类标签
+                # 用户标签会映射到weather字段，但不改变用户标签本身
+                ai_label = generate_ai_labels(image_path, tags)
+                if ai_label:
+                    # 保存到labels.jsonl（仅用于推荐筛选，不影响用户标签）
+                    save_label_to_jsonl(ai_label)
+                    print(f"已为新帖子生成AI标准大类标签: {image_path}")
+        except Exception as e:
+            # AI打标签失败不影响帖子创建和用户标签
+            print(f"AI打标签失败（不影响帖子创建和用户标签）: {e}")
 
         return jsonify(
             {

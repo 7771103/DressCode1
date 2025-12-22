@@ -11,6 +11,13 @@ import retrofit2.converter.gson.GsonConverterFactory;
 
 public class ApiClient {
 
+
+
+// 注意：真机调试时，请将下面的 IP 换成你电脑在同一局域网下的 IPv4 地址
+    // 例如：在命令行运行 ipconfig，找到无线局域网适配器 WLAN 的 IPv4 地址
+    // 当前示例：10.134.17.29
+    // private static final String BASE_URL = "http://10.134.17.29:5000/";
+
     // 注意：部署到云服务器后，这里需要使用服务器的公网 IP 或域名
     // 当前配置：阿里云服务器公网 IP 120.26.33.174，后端运行在 5000 端口
     private static final String BASE_URL = "http://120.26.33.174:5000/";

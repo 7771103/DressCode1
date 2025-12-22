@@ -351,9 +351,9 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
 
     @Override
     public void onCommentClick(Post post, int position) {
+        // 传递完整的Post对象，与HomeActivity保持一致
         Intent intent = new Intent(this, PostDetailActivity.class);
-        intent.putExtra("post_id", post.getId());
-        intent.putExtra("current_user_id", currentUserId);
+        intent.putExtra("post", post);
         startActivity(intent);
     }
 
@@ -423,9 +423,9 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
 
     @Override
     public void onPostClick(Post post) {
+        // 传递完整的Post对象，与HomeActivity保持一致
         Intent intent = new Intent(this, PostDetailActivity.class);
-        intent.putExtra("post_id", post.getId());
-        intent.putExtra("current_user_id", currentUserId);
+        intent.putExtra("post", post);
         startActivity(intent);
     }
 

@@ -1,10 +1,16 @@
 package com.example.dresscode1;
 
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
+import android.view.ViewTreeObserver;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -98,6 +104,7 @@ public class PostDetailActivity extends AppCompatActivity {
         loadComments();
         setupActions();
         setupDeleteButton();
+        setupKeyboardListener();
     }
 
     private void bindViews() {
@@ -230,6 +237,42 @@ public class PostDetailActivity extends AppCompatActivity {
                 startActivity(intent);
             }
         });
+        
+        // 输入框点击事件，确保可以正常获得焦点和显示键盘
+        if (etComment != null) {
+            // 点击输入框时，确保获得焦点并显示键盘
+            etComment.setOnClickListener(v -> {
+                etComment.requestFocus();
+                // 显示软键盘
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(etComment, InputMethodManager.SHOW_IMPLICIT);
+                }
+            });
+            
+            // 输入框获得焦点时，延迟滚动到底部并确保可见
+            etComment.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) {
+                    // 延迟确保键盘已经弹出后再滚动
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                        ensureInputVisible();
+                        scrollToBottom();
+                    }, 400);
+                }
+            });
+        }
+        
+        // 点击输入框容器也可以触发输入
+        View llCommentInputBar = findViewById(R.id.llCommentInputBar);
+        if (llCommentInputBar != null && etComment != null) {
+            llCommentInputBar.setOnClickListener(v -> {
+                etComment.requestFocus();
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.showSoftInput(etComment, InputMethodManager.SHOW_IMPLICIT);
+                }
+            });
+        }
     }
     
     private void setupDeleteButton() {
@@ -251,6 +294,145 @@ public class PostDetailActivity extends AppCompatActivity {
                     .setNegativeButton("取消", null)
                     .show();
         });
+    }
+    
+    private void setupKeyboardListener() {
+        final View rootView = findViewById(android.R.id.content);
+        if (rootView == null) {
+            return;
+        }
+        
+        final ViewTreeObserver.OnGlobalLayoutListener keyboardLayoutListener = new ViewTreeObserver.OnGlobalLayoutListener() {
+            private boolean isKeyboardShowing = false;
+
+            @Override
+            public void onGlobalLayout() {
+                try {
+                    Rect r = new Rect();
+                    rootView.getWindowVisibleDisplayFrame(r);
+                    int screenHeight = rootView.getRootView().getHeight();
+                    int keypadHeight = screenHeight - r.bottom;
+
+                    // 如果键盘高度超过屏幕的15%，认为键盘已显示
+                    boolean keyboardVisible = keypadHeight > screenHeight * 0.15;
+                    
+                    if (keyboardVisible && !isKeyboardShowing) {
+                        // 键盘刚显示，确保输入框可见
+                        isKeyboardShowing = true;
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            ensureInputVisible();
+                            scrollToBottom();
+                        }, 300);
+                    } else if (!keyboardVisible && isKeyboardShowing) {
+                        // 键盘刚隐藏
+                        isKeyboardShowing = false;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        rootView.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
+    }
+    
+    private void scrollToBottom() {
+        try {
+            View nestedScrollView = findViewById(R.id.nestedScrollView);
+            View inputBar = findViewById(R.id.llCommentInputBar);
+            
+            if (nestedScrollView != null && nestedScrollView instanceof androidx.core.widget.NestedScrollView) {
+                nestedScrollView.post(() -> {
+                    try {
+                        androidx.core.widget.NestedScrollView nsv = (androidx.core.widget.NestedScrollView) nestedScrollView;
+                        
+                        // 如果输入框存在，滚动到输入框位置，确保输入框可见
+                        if (inputBar != null) {
+                            // 获取输入框在 NestedScrollView 中的位置
+                            int[] location = new int[2];
+                            inputBar.getLocationOnScreen(location);
+                            int[] scrollViewLocation = new int[2];
+                            nsv.getLocationOnScreen(scrollViewLocation);
+                            
+                            // 计算需要滚动的距离
+                            int inputBarTop = location[1] - scrollViewLocation[1];
+                            int scrollViewHeight = nsv.getHeight();
+                            int scrollOffset = inputBarTop - scrollViewHeight + inputBar.getHeight() + 200; // 200dp 额外空间
+                            
+                            if (scrollOffset > 0) {
+                                nsv.smoothScrollBy(0, scrollOffset);
+                            } else {
+                                nsv.fullScroll(View.FOCUS_DOWN);
+                            }
+                        } else {
+                            nsv.fullScroll(View.FOCUS_DOWN);
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void ensureInputVisible() {
+        try {
+            View inputBar = findViewById(R.id.llCommentInputBar);
+            View nestedScrollView = findViewById(R.id.nestedScrollView);
+            View etComment = findViewById(R.id.etComment);
+            
+            if (inputBar != null && nestedScrollView != null) {
+                // 延迟执行，确保键盘已经完全弹出
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    try {
+                        if (nestedScrollView instanceof androidx.core.widget.NestedScrollView) {
+                            androidx.core.widget.NestedScrollView nsv = 
+                                (androidx.core.widget.NestedScrollView) nestedScrollView;
+                            
+                            // 获取可见区域（排除键盘）
+                            View rootView = findViewById(android.R.id.content);
+                            if (rootView != null) {
+                                Rect visibleRect = new Rect();
+                                rootView.getWindowVisibleDisplayFrame(visibleRect);
+                                
+                                // 获取输入框在屏幕中的位置
+                                int[] inputBarLocation = new int[2];
+                                inputBar.getLocationOnScreen(inputBarLocation);
+                                
+                                // 获取 NestedScrollView 在屏幕中的位置
+                                int[] scrollViewLocation = new int[2];
+                                nsv.getLocationOnScreen(scrollViewLocation);
+                                
+                                // 计算输入框底部位置
+                                int inputBarBottom = inputBarLocation[1] + inputBar.getHeight();
+                                
+                                // 如果输入框底部超出可见区域（被键盘遮挡），需要滚动
+                                if (inputBarBottom > visibleRect.bottom) {
+                                    // 计算需要滚动的距离
+                                    int scrollOffset = inputBarBottom - visibleRect.bottom + 150; // 150dp 额外空间
+                                    
+                                    // 计算输入框在 NestedScrollView 中的相对位置
+                                    int inputBarTopInScrollView = inputBarLocation[1] - scrollViewLocation[1];
+                                    int currentScrollY = nsv.getScrollY();
+                                    int scrollViewHeight = nsv.getHeight();
+                                    
+                                    // 计算目标滚动位置，让输入框在可见区域内
+                                    int targetScrollY = currentScrollY + scrollOffset;
+                                    
+                                    // 平滑滚动到目标位置
+                                    nsv.smoothScrollTo(0, targetScrollY);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }, 100);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
     
     private void deletePost() {
@@ -409,37 +591,69 @@ public class PostDetailActivity extends AppCompatActivity {
             return;
         }
 
+        if (etComment == null) {
+            Toast.makeText(this, "输入框未初始化", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (post == null) {
+            Toast.makeText(this, "帖子信息错误", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         String content = etComment.getText() != null ? etComment.getText().toString().trim() : "";
         if (content.isEmpty()) {
             Toast.makeText(this, "请输入评论内容", Toast.LENGTH_SHORT).show();
             return;
         }
 
+        // 禁用发送按钮，防止重复点击
+        btnSendComment.setEnabled(false);
+        btnSendComment.setText("发送中...");
+
         CommentRequest request = new CommentRequest(currentUserId, content);
         ApiClient.getService().addComment(post.getId(), request)
                 .enqueue(new Callback<CommentResponse>() {
                     @Override
                     public void onResponse(Call<CommentResponse> call, Response<CommentResponse> response) {
+                        // 恢复发送按钮
+                        btnSendComment.setEnabled(true);
+                        btnSendComment.setText("发送");
+                        
                         if (response.isSuccessful() && response.body() != null) {
                             CommentResponse commentResponse = response.body();
                             if (commentResponse.isOk() && commentResponse.getData() != null) {
                                 // 添加评论到列表
-                                commentAdapter.addComment(commentResponse.getData());
+                                if (commentAdapter != null) {
+                                    commentAdapter.addComment(commentResponse.getData());
+                                }
                                 // 更新评论数
                                 post.setCommentCount(post.getCommentCount() + 1);
-                                tvCommentCount.setText(String.valueOf(post.getCommentCount()));
+                                if (tvCommentCount != null) {
+                                    tvCommentCount.setText(String.valueOf(post.getCommentCount()));
+                                }
                                 // 清空输入框
-                                etComment.setText("");
+                                if (etComment != null) {
+                                    etComment.setText("");
+                                }
+                                // 滚动到底部显示新评论
+                                scrollToBottom();
                                 Toast.makeText(PostDetailActivity.this, "评论成功", Toast.LENGTH_SHORT).show();
                             } else {
-                                Toast.makeText(PostDetailActivity.this, commentResponse.getMsg(), Toast.LENGTH_SHORT).show();
+                                String msg = commentResponse.getMsg() != null ? commentResponse.getMsg() : "评论失败";
+                                Toast.makeText(PostDetailActivity.this, msg, Toast.LENGTH_SHORT).show();
                             }
+                        } else {
+                            Toast.makeText(PostDetailActivity.this, "评论失败: " + response.code(), Toast.LENGTH_SHORT).show();
                         }
                     }
 
                     @Override
                     public void onFailure(Call<CommentResponse> call, Throwable t) {
-                        Toast.makeText(PostDetailActivity.this, "评论失败", Toast.LENGTH_SHORT).show();
+                        // 恢复发送按钮
+                        btnSendComment.setEnabled(true);
+                        btnSendComment.setText("发送");
+                        Toast.makeText(PostDetailActivity.this, "评论失败: " + t.getMessage(), Toast.LENGTH_SHORT).show();
                     }
                 });
     }
