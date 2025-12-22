@@ -1766,6 +1766,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
         
+        // 搜索按钮仅在首页显示
+        if (btnSearch != null) {
+            btnSearch.setVisibility(View.VISIBLE);
+        }
+        
         // 筛选栏只在"推荐"标签页显示
         if (hsvFilters != null) {
             hsvFilters.setVisibility("recommend".equals(currentHomeFeedTab) ? View.VISIBLE : View.GONE);
@@ -1841,6 +1846,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.GONE);
         
+        // 非首页隐藏搜索按钮
+        if (btnSearch != null) {
+            btnSearch.setVisibility(View.GONE);
+        }
+        
         // 如果是第一次进入对话页面，显示欢迎消息
         if (messageAdapter.getItemCount() == 0) {
             sendWelcomeMessage();
@@ -1875,6 +1885,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svAgent.setVisibility(View.GONE);
         svWardrobe.setVisibility(View.VISIBLE);
         svProfile.setVisibility(View.GONE);
+        
+        // 非首页隐藏搜索按钮
+        if (btnSearch != null) {
+            btnSearch.setVisibility(View.GONE);
+        }
         
         // 如果已经加载过数据，先显示缓存的数据（保持排序状态）
         if (wardrobeItemsLoaded && cachedWardrobeItems != null && !cachedWardrobeItems.isEmpty()) {
@@ -2428,6 +2443,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         svAgent.setVisibility(View.GONE);
         svWardrobe.setVisibility(View.GONE);
         svProfile.setVisibility(View.VISIBLE);
+        
+        // 非首页隐藏搜索按钮
+        if (btnSearch != null) {
+            btnSearch.setVisibility(View.GONE);
+        }
         
         // 加载用户信息
         loadUserInfo();
