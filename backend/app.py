@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
@@ -459,7 +459,9 @@ def create_app():
                 # 因此使用通义千问的chat/completions API进行物品类型识别
                 qwen_api_key = os.environ.get("QWEN_API_KEY", "").strip()
                 qwen_api_url = os.environ.get("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
-                qwen_model = os.environ.get("QWEN_MODEL", "qwen-vl-max").strip()
+                # 物品识别使用视觉模型，智能体使用文本模型
+                # 可以通过 QWEN_VL_MODEL 单独配置视觉模型，否则使用默认的 qwen-vl-max
+                qwen_model = os.environ.get("QWEN_VL_MODEL", os.environ.get("QWEN_MODEL", "qwen-vl-max")).strip()
                 
                 if qwen_api_key and qwen_model and clothing_image_base64:
                     # 构建识别请求 - 要求返回类型和详细描述
@@ -1015,6 +1017,131 @@ def create_app():
                 "total": total,
             }
         ), 200
+
+    # 通过ID列表获取帖子详情
+    @app.route("/api/posts/by-ids", methods=["POST"])
+    def get_posts_by_ids():
+        """
+        通过ID列表获取帖子详情
+        用于获取推荐的帖子
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            post_ids = data.get("post_ids", [])
+            current_user_id = data.get("current_user_id")
+            
+            if not post_ids or not isinstance(post_ids, list):
+                return jsonify({"ok": False, "msg": "需要提供帖子ID列表"}), 400
+            
+            # 查询帖子
+            posts = Post.query.filter(Post.id.in_(post_ids)).all()
+            
+            result = []
+            for post in posts:
+                user = User.query.get(post.user_id)
+                is_liked = (
+                    Like.query.filter_by(user_id=current_user_id, post_id=post.id).first()
+                    is not None
+                    if current_user_id
+                    else False
+                )
+                is_collected = (
+                    Collection.query.filter_by(
+                        user_id=current_user_id, post_id=post.id
+                    ).first()
+                    is not None
+                    if current_user_id
+                    else False
+                )
+                
+                # 获取帖子的标签
+                post_tags = PostTag.query.filter_by(post_id=post.id).all()
+                tags = [post_tag.tag.name for post_tag in post_tags]
+                
+                # 实时查询评论数量
+                actual_comment_count = Comment.query.filter_by(post_id=post.id).count()
+                
+                result.append({
+                    "id": post.id,
+                    "userId": post.user_id,
+                    "userNickname": user.nickname if user else "未知用户",
+                    "userAvatar": user.avatar if user else None,
+                    "imagePath": post.image_path,
+                    "content": post.content or "",
+                    "tags": tags,
+                    "likeCount": post.like_count,
+                    "commentCount": actual_comment_count,
+                    "collectCount": post.collect_count,
+                    "isLiked": is_liked,
+                    "isCollected": is_collected,
+                    "createdAt": format_utc_time(post.created_at) if post.created_at else None,
+                })
+            
+            # 按照请求的ID顺序排序
+            id_to_post = {post["id"]: post for post in result}
+            ordered_result = [id_to_post[post_id] for post_id in post_ids if post_id in id_to_post]
+            
+            return jsonify({
+                "ok": True,
+                "data": ordered_result
+            }), 200
+            
+        except Exception as e:
+            print(f"获取帖子详情失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"ok": False, "msg": f"获取帖子详情失败: {str(e)}"}), 500
+
+    # 通过ID列表获取用户详情
+    @app.route("/api/users/by-ids", methods=["POST"])
+    def get_users_by_ids():
+        """
+        通过ID列表获取用户详情
+        用于获取推荐的博主
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            user_ids = data.get("user_ids", [])
+            current_user_id = data.get("current_user_id")
+            
+            if not user_ids or not isinstance(user_ids, list):
+                return jsonify({"ok": False, "msg": "需要提供用户ID列表"}), 400
+            
+            # 查询用户
+            users = User.query.filter(User.id.in_(user_ids)).all()
+            
+            result = []
+            for user in users:
+                # 检查当前用户是否关注了该用户
+                is_following = False
+                if current_user_id and current_user_id > 0 and current_user_id != user.id:
+                    is_following = Follow.query.filter_by(
+                        follower_id=current_user_id,
+                        following_id=user.id
+                    ).first() is not None
+                
+                result.append({
+                    "id": user.id,
+                    "phone": user.phone,
+                    "nickname": user.nickname,
+                    "avatar": user.avatar,
+                    "isFollowing": is_following,
+                })
+            
+            # 按照请求的ID顺序排序
+            id_to_user = {user["id"]: user for user in result}
+            ordered_result = [id_to_user[user_id] for user_id in user_ids if user_id in id_to_user]
+            
+            return jsonify({
+                "ok": True,
+                "data": ordered_result
+            }), 200
+            
+        except Exception as e:
+            print(f"获取用户详情失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"ok": False, "msg": f"获取用户详情失败: {str(e)}"}), 500
 
     # 获取关注用户的帖子列表
     @app.route("/api/posts/following", methods=["GET"])
@@ -2959,6 +3086,776 @@ def create_app():
         except Exception as e:
             db.session.rollback()
             return jsonify({"ok": False, "msg": f"同步失败: {str(e)}"}), 500
+
+    # ==================== 智能体聊天API (MCP+RAG+LLM) ====================
+    
+    # MCP工具：天气查询
+    def get_weather_info(temperature=None, weather_text=None, location=None):
+        """
+        获取天气信息（MCP工具）
+        优先使用请求中传递的天气信息，如果没有则返回None
+        """
+        try:
+            # 如果请求中提供了天气信息，直接使用
+            if temperature or weather_text:
+                return {
+                    "temperature": temperature or "未知",
+                    "weather_text": weather_text or "未知",
+                    "location": location or "未知"
+                }
+            # 否则返回None，表示不需要天气信息
+            return None
+        except Exception as e:
+            print(f"获取天气信息失败: {e}")
+            return None
+    
+    # RAG检索：从数据集和用户帖子中检索相关内容
+    def rag_search(query, user_id=None, weather_info=None, limit=5):
+        """
+        RAG检索：从labels.jsonl和用户帖子中检索相关内容
+        综合关键词、天气信息和用户标签偏好进行推荐
+        """
+        results = []
+        
+        # 获取用户标签偏好（基于点赞和收藏的帖子标签）
+        user_preferred_tags = []
+        if user_id:
+            try:
+                # 获取用户点赞的帖子标签
+                liked_post_tags = db.session.query(Tag.name).join(PostTag).join(Like).filter(
+                    Like.user_id == user_id
+                ).distinct().all()
+                
+                # 获取用户收藏的帖子标签
+                collected_post_tags = db.session.query(Tag.name).join(PostTag).join(Collection).filter(
+                    Collection.user_id == user_id
+                ).distinct().all()
+                
+                # 合并并去重
+                all_tags = set([tag[0] for tag in liked_post_tags] + [tag[0] for tag in collected_post_tags])
+                user_preferred_tags = list(all_tags)
+                
+                if user_preferred_tags:
+                    print(f"[RAG调试] 用户偏好标签: {user_preferred_tags[:10]}")
+            except Exception as e:
+                print(f"[RAG调试] 获取用户标签偏好失败: {e}")
+        
+        # 提取天气相关关键词（用于匹配）
+        weather_keywords = []
+        if weather_info:
+            weather_text = weather_info.get("weather_text", "").lower()
+            temp = weather_info.get("temperature", "")
+            
+            # 根据天气文本提取关键词
+            if "晴" in weather_text or "sun" in weather_text:
+                weather_keywords.extend(["晴天", "sunny", "阳光", "晴"])
+            if "雨" in weather_text or "rain" in weather_text:
+                weather_keywords.extend(["雨天", "rainy", "雨"])
+            if "雪" in weather_text or "snow" in weather_text:
+                weather_keywords.extend(["雪天", "snowy", "雪"])
+            if "云" in weather_text or "cloud" in weather_text:
+                weather_keywords.extend(["多云", "cloudy", "云"])
+            
+            # 根据温度提取关键词
+            if temp:
+                try:
+                    temp_num = float(str(temp).replace("°", "").replace("℃", "").replace("C", "").strip())
+                    if temp_num >= 25:
+                        weather_keywords.extend(["夏天", "夏季", "炎热", "温暖", "热", "夏日"])
+                    elif temp_num >= 15:
+                        weather_keywords.extend(["春天", "春季", "温暖", "舒适", "春", "春日"])
+                    elif temp_num >= 5:
+                        weather_keywords.extend(["秋天", "秋季", "凉爽", "秋", "秋日"])
+                    else:
+                        weather_keywords.extend(["冬天", "冬季", "寒冷", "保暖", "冬", "冬日", "冷"])
+                except:
+                    pass
+            
+            if weather_keywords:
+                print(f"[RAG调试] 天气关键词: {weather_keywords}")
+        
+        # 改进的关键词提取：支持中文分词和字符级匹配
+        stop_words = {"的", "了", "吗", "呢", "啊", "呀", "什么", "怎么", "如何", "推荐", "适合", "穿搭", "衣服", "服装", "一个", "一件", "帮我", "想要"}
+        query_lower = query.lower()
+        
+        # 先尝试按空格分割（适用于英文或带空格的查询）
+        query_words = [w for w in query_lower.split() if w not in stop_words and len(w) > 1]
+        
+        # 如果分割后词太少或为空，尝试中文分词（简单版本：提取2-4字的连续字符）
+        if len(query_words) <= 1:
+            # 提取2-4字的中文词组
+            chinese_chars = re.findall(r'[\u4e00-\u9fff]+', query)
+            for text in chinese_chars:
+                # 提取2-4字的子串
+                for i in range(len(text)):
+                    for length in [2, 3, 4]:
+                        if i + length <= len(text):
+                            word = text[i:i+length]
+                            if word not in stop_words and word not in query_words:
+                                query_words.append(word)
+        
+        # 如果还是没有关键词，至少保留完整查询（去除stop_words）
+        if not query_words:
+            cleaned_query = query_lower
+            for stop_word in stop_words:
+                cleaned_query = cleaned_query.replace(stop_word, " ")
+            cleaned_query = cleaned_query.strip()
+            if cleaned_query and len(cleaned_query) > 1:
+                query_words = [cleaned_query]
+        
+        # 确保至少有一个查询词用于匹配
+        if not query_words:
+            query_words = [query_lower]
+        
+        print(f"[RAG调试] 查询: {query}, 提取关键词: {query_words}")
+        
+        # 1. 从labels.jsonl中检索
+        labels_file = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "dataset", "data", "labels.jsonl"
+        )
+        
+        if os.path.exists(labels_file):
+            try:
+                matched_items = []
+                
+                with open(labels_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            label = json.loads(line)
+                            image_path = label.get("image_path", "")
+                            
+                            # 构建搜索文本
+                            search_text = ""
+                            if label.get("items"):
+                                search_text += " ".join(label.get("items", []))
+                            if label.get("styles"):
+                                search_text += " " + " ".join(label.get("styles", []))
+                            if label.get("scenes"):
+                                search_text += " " + " ".join(label.get("scenes", []))
+                            if label.get("colors"):
+                                search_text += " " + " ".join(label.get("colors", []))
+                            
+                            search_text_lower = search_text.lower()
+                            
+                            # 计算匹配度（改进：使用关键词匹配）
+                            score = 0
+                            for word in query_words:
+                                if word in search_text_lower:
+                                    score += 2  # 关键词匹配分数更高
+                            # 完整查询匹配分数更高
+                            if query_lower in search_text_lower:
+                                score += 5
+                            
+                            # 如果查询包含天气相关关键词，检查天气标签匹配
+                            if weather_info:
+                                weather_tags = label.get("weather", [])
+                                if weather_tags:
+                                    weather_text = weather_info.get("weather_text", "").lower()
+                                    temp = weather_info.get("temperature", "")
+                                    
+                                    # 检查天气匹配
+                                    if any(tag.lower() in weather_text or weather_text in tag.lower() 
+                                          for tag in weather_tags if isinstance(tag, str)):
+                                        score += 2
+                            
+                            if score > 0:
+                                matched_items.append({
+                                    "image_path": image_path,
+                                    "label": label,
+                                    "score": score,
+                                    "type": "dataset"
+                                })
+                        except json.JSONDecodeError:
+                            continue
+                
+                # 按分数排序，取前limit个
+                matched_items.sort(key=lambda x: x["score"], reverse=True)
+                results.extend(matched_items[:limit])
+                print(f"[RAG调试] 数据集检索到 {len(matched_items)} 个结果")
+            except Exception as e:
+                print(f"RAG检索数据集失败: {e}")
+        
+        # 2. 从用户帖子中检索
+        if user_id:
+            try:
+                post_ids_found = set()  # 用于去重
+                has_matched_results = False  # 标记是否有真正的匹配结果
+                
+                # 2.1 搜索帖子内容（改进：使用多个关键词OR查询，同时支持完整查询匹配）
+                content_conditions = []
+                # 添加完整查询匹配（优先级更高）
+                if query and len(query.strip()) > 1:
+                    content_conditions.append(Post.content.like(f"%{query}%"))
+                # 添加关键词匹配
+                if query_words:
+                    for word in query_words:
+                        if len(word) > 1:
+                            content_conditions.append(Post.content.like(f"%{word}%"))
+                
+                if content_conditions:
+                    content_posts = Post.query.filter(
+                        or_(*content_conditions)
+                    ).limit(limit * 3).all()
+                else:
+                    content_posts = []
+                
+                for post in content_posts:
+                    if post.id not in post_ids_found:
+                        post_ids_found.add(post.id)
+                        has_matched_results = True
+                        # 获取帖子标签
+                        post_tags = db.session.query(Tag.name).join(PostTag).filter(
+                            PostTag.post_id == post.id
+                        ).all()
+                        tag_names = [tag[0] for tag in post_tags]
+                        
+                        # 计算匹配分数（改进：完整查询匹配分数更高）
+                        match_score = 2
+                        content_lower = post.content.lower()
+                        # 完整查询匹配分数最高
+                        if query and query.lower() in content_lower:
+                            match_score += 5
+                        # 关键词匹配
+                        for word in query_words:
+                            if word in content_lower:
+                                match_score += 2  # 提高关键词匹配分数
+                        
+                        # 天气匹配加分（如果帖子标签或内容匹配天气关键词）
+                        if weather_keywords and tag_names:
+                            for weather_kw in weather_keywords:
+                                if any(weather_kw in tag.lower() or tag.lower() in weather_kw for tag in tag_names):
+                                    match_score += 3  # 天气匹配加分
+                                    break
+                            # 内容中也检查天气关键词
+                            for weather_kw in weather_keywords:
+                                if weather_kw in content_lower:
+                                    match_score += 2
+                                    break
+                        
+                        # 用户标签偏好匹配加分（如果帖子标签匹配用户偏好）
+                        if user_preferred_tags and tag_names:
+                            matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
+                            if matched_preferred_tags:
+                                match_score += len(matched_preferred_tags) * 2  # 每个匹配的偏好标签加2分
+                                print(f"[RAG调试] 帖子{post.id}匹配用户偏好标签: {matched_preferred_tags}")
+                        
+                        # 获取用户信息
+                        user = User.query.get(post.user_id)
+                        
+                        results.append({
+                            "post_id": post.id,
+                            "image_path": post.image_path,
+                            "content": post.content,
+                            "user_id": post.user_id,
+                            "user_nickname": user.nickname if user else None,
+                            "tags": tag_names,
+                            "type": "post",
+                            "score": match_score,  # 内容匹配分数
+                            "recommendation_type": "recommended"  # 标记为推荐
+                        })
+                
+                print(f"[RAG调试] 内容搜索找到 {len([r for r in results if r.get('type') == 'post'])} 个帖子")
+                
+                # 2.2 如果结果不足，基于标签搜索（改进：更灵活的标签匹配，综合查询、天气、用户偏好）
+                if len([r for r in results if r.get("type") == "post"]) < limit:
+                    # 构建标签匹配条件：支持完整查询、关键词、天气关键词、用户偏好标签匹配
+                    tag_conditions = []
+                    # 添加完整查询匹配
+                    if query and len(query.strip()) > 1:
+                        tag_conditions.append(Tag.name.like(f"%{query}%"))
+                    # 添加关键词匹配
+                    if query_words:
+                        for word in query_words:
+                            if len(word) > 1:
+                                tag_conditions.append(Tag.name.like(f"%{word}%"))
+                    # 添加天气关键词匹配
+                    if weather_keywords:
+                        for weather_kw in weather_keywords:
+                            tag_conditions.append(Tag.name.like(f"%{weather_kw}%"))
+                    # 添加用户偏好标签匹配（优先匹配用户喜欢的标签）
+                    if user_preferred_tags:
+                        for pref_tag in user_preferred_tags[:10]:  # 限制数量避免查询过大
+                            tag_conditions.append(Tag.name.like(f"%{pref_tag}%"))
+                    
+                    # 如果还是没有条件，尝试字符级匹配（对于中文）
+                    if not tag_conditions and query:
+                        # 提取查询中的每个字符，尝试匹配标签
+                        for char in query:
+                            if '\u4e00' <= char <= '\u9fff':  # 中文字符
+                                tag_conditions.append(Tag.name.like(f"%{char}%"))
+                    
+                    if tag_conditions:
+                        matching_tags = Tag.query.filter(
+                            or_(*tag_conditions)
+                        ).limit(30).all()
+                        
+                        if matching_tags:
+                            tag_names_list = [tag.name for tag in matching_tags]
+                            print(f"[RAG调试] 找到匹配标签: {tag_names_list[:10]}")
+                            # 查找有这些标签的帖子
+                            tag_posts = Post.query.join(PostTag).join(Tag).filter(
+                                Tag.name.in_(tag_names_list)
+                            ).distinct().limit(limit * 3).all()
+                        else:
+                            tag_posts = []
+                    else:
+                        tag_posts = []
+                    
+                    # 处理找到的标签帖子
+                    for post in tag_posts:
+                        if post.id not in post_ids_found and len([r for r in results if r.get("type") == "post"]) < limit:
+                            post_ids_found.add(post.id)
+                            has_matched_results = True
+                            # 获取帖子标签
+                            post_tags = db.session.query(Tag.name).join(PostTag).filter(
+                                PostTag.post_id == post.id
+                            ).all()
+                            tag_names = [tag[0] for tag in post_tags]
+                            
+                            # 计算匹配分数（改进：完整查询匹配和关键词匹配）
+                            match_score = 1
+                            # 检查完整查询是否在标签中
+                            if query:
+                                query_lower = query.lower()
+                                if any(query_lower in tag.lower() or tag.lower() in query_lower for tag in tag_names):
+                                    match_score += 3  # 完整匹配分数更高
+                            # 关键词匹配
+                            for word in query_words:
+                                if any(word in tag.lower() for tag in tag_names):
+                                    match_score += 1  # 提高关键词匹配分数
+                            
+                            # 天气匹配加分（如果帖子标签匹配天气关键词）
+                            if weather_keywords and tag_names:
+                                for weather_kw in weather_keywords:
+                                    if any(weather_kw in tag.lower() or tag.lower() in weather_kw for tag in tag_names):
+                                        match_score += 3  # 天气匹配加分
+                                        break
+                            
+                            # 用户标签偏好匹配加分（如果帖子标签匹配用户偏好）
+                            if user_preferred_tags and tag_names:
+                                matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
+                                if matched_preferred_tags:
+                                    match_score += len(matched_preferred_tags) * 2  # 每个匹配的偏好标签加2分
+                            
+                            # 获取用户信息
+                            user = User.query.get(post.user_id)
+                            
+                            results.append({
+                                "post_id": post.id,
+                                "image_path": post.image_path,
+                                "content": post.content,
+                                "user_id": post.user_id,
+                                "user_nickname": user.nickname if user else None,
+                                "tags": tag_names,
+                                "type": "post",
+                                "score": match_score,  # 标签匹配分数
+                                "recommendation_type": "recommended"  # 标记为推荐
+                            })
+                
+                # 2.3 如果结果仍然不足且有天气信息，基于天气标签推荐
+                if weather_info and weather_keywords and len([r for r in results if r.get("type") == "post"]) < limit:
+                        # 查找匹配天气的标签
+                        weather_tags = Tag.query.filter(
+                            or_(*[Tag.name.like(f"%{kw}%") for kw in weather_keywords])
+                        ).limit(10).all()
+                        
+                        if weather_tags:
+                            weather_tag_names = [tag.name for tag in weather_tags]
+                            # 查找有这些标签的帖子
+                            weather_posts = Post.query.join(PostTag).join(Tag).filter(
+                                Tag.name.in_(weather_tag_names)
+                            ).distinct().order_by(Post.created_at.desc()).limit(limit * 2).all()
+                            
+                            for post in weather_posts:
+                                if post.id not in post_ids_found and len([r for r in results if r.get("type") == "post"]) < limit:
+                                    post_ids_found.add(post.id)
+                                    has_matched_results = True
+                                    # 获取帖子标签
+                                    post_tags = db.session.query(Tag.name).join(PostTag).filter(
+                                        PostTag.post_id == post.id
+                                    ).all()
+                                    tag_names = [tag[0] for tag in post_tags]
+                                    
+                                    # 计算天气匹配分数
+                                    weather_match_score = 1.5
+                                    # 用户标签偏好匹配加分
+                                    if user_preferred_tags and tag_names:
+                                        matched_preferred_tags = [tag for tag in tag_names if tag in user_preferred_tags]
+                                        if matched_preferred_tags:
+                                            weather_match_score += len(matched_preferred_tags) * 2
+                                    
+                                    # 获取用户信息
+                                    user = User.query.get(post.user_id)
+                                    
+                                    results.append({
+                                        "post_id": post.id,
+                                        "image_path": post.image_path,
+                                        "content": post.content,
+                                        "user_id": post.user_id,
+                                        "user_nickname": user.nickname if user else None,
+                                        "tags": tag_names,
+                                        "type": "post",
+                                        "score": weather_match_score,  # 天气匹配分数（已包含用户偏好加分）
+                                        "recommendation_type": "recommended"  # 标记为推荐
+                                    })
+                
+                # 2.4 如果结果仍然不足且没有真正的匹配结果，才推荐热门帖子
+                # 改进：只有当完全没有匹配时才回退到热门帖子
+                if len([r for r in results if r.get("type") == "post"]) < limit and not has_matched_results:
+                    print(f"[RAG调试] 没有匹配结果，回退到热门帖子")
+                    hot_posts = Post.query.order_by(
+                        (Post.like_count + Post.collect_count * 2).desc(),
+                        Post.created_at.desc()
+                    ).limit(limit * 2).all()
+                    
+                    for post in hot_posts:
+                        if post.id not in post_ids_found and len([r for r in results if r.get("type") == "post"]) < limit:
+                            post_ids_found.add(post.id)
+                            # 获取帖子标签
+                            post_tags = db.session.query(Tag.name).join(PostTag).filter(
+                                PostTag.post_id == post.id
+                            ).all()
+                            tag_names = [tag[0] for tag in post_tags]
+                            
+                            # 获取用户信息
+                            user = User.query.get(post.user_id)
+                            
+                            results.append({
+                                "post_id": post.id,
+                                "image_path": post.image_path,
+                                "content": post.content,
+                                "user_id": post.user_id,
+                                "user_nickname": user.nickname if user else None,
+                                "tags": tag_names,
+                                "type": "post",
+                                "score": 0.1,  # 热门推荐分数最低，只在没有匹配时使用
+                                "recommendation_type": "hot"  # 标记为热门推荐
+                            })
+                
+            except Exception as e:
+                print(f"RAG检索用户帖子失败: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # 按分数排序，确保高质量结果在前
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        # 记录帖子结果用于调试
+        post_results = [r for r in results if r.get("type") == "post"]
+        dataset_results = [r for r in results if r.get("type") == "dataset"]
+        print(f"[RAG调试] 查询: '{query}'")
+        print(f"[RAG调试] 提取关键词: {query_words}")
+        if weather_info:
+            print(f"[RAG调试] 天气信息: {weather_info.get('weather_text')}, {weather_info.get('temperature')}°C")
+            print(f"[RAG调试] 天气关键词: {weather_keywords}")
+        else:
+            print(f"[RAG调试] 未使用天气信息")
+        if user_preferred_tags:
+            print(f"[RAG调试] 用户偏好标签数量: {len(user_preferred_tags)}")
+        else:
+            print(f"[RAG调试] 未使用用户标签偏好")
+        print(f"[RAG调试] 最终返回 {len(post_results)} 个帖子推荐, {len(dataset_results)} 个数据集结果")
+        if post_results:
+            print(f"[RAG调试] 推荐帖子ID: {[r.get('post_id') for r in post_results[:5]]}")
+            print(f"[RAG调试] 推荐帖子分数: {[r.get('score', 0) for r in post_results[:5]]}")
+            print(f"[RAG调试] 推荐帖子内容: {[r.get('content', '')[:30] + '...' if len(r.get('content', '')) > 30 else r.get('content', '') for r in post_results[:3]]}")
+        
+        # 返回所有结果（包括dataset和post），供LLM使用
+        # extract_recommendations函数会只提取post类型的结果
+        return results[:limit * 2]  # 返回更多结果，让LLM有更多上下文
+    
+    # 清理Markdown格式，使文本更美观
+    def clean_markdown(text):
+        """
+        清理文本中的Markdown格式标记，移除星号等符号，使显示更美观
+        """
+        if not text:
+            return text
+        
+        import re
+        
+        # 移除粗体标记 **text** -> text
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        
+        # 移除斜体标记 *text* -> text (使用非贪婪匹配，避免误删)
+        text = re.sub(r'(?<!\*)\*([^*\n]+?)\*(?!\*)', r'\1', text)
+        
+        # 移除代码块标记 `code` -> code
+        text = re.sub(r'`([^`]+?)`', r'\1', text)
+        
+        # 移除标题标记 # 标题 -> 标题
+        text = re.sub(r'^#{1,6}\s+(.+)$', r'\1', text, flags=re.MULTILINE)
+        
+        # 移除链接格式 [text](url) -> text
+        text = re.sub(r'\[([^\]]+?)\]\([^\)]+?\)', r'\1', text)
+        
+        # 移除列表标记 - 或 * 开头的列表项（但保留内容）
+        text = re.sub(r'^[\s]*[-*]\s+(.+)$', r'\1', text, flags=re.MULTILINE)
+        
+        # 移除数字列表标记 1. 或 1) 开头的列表项（但保留内容）
+        text = re.sub(r'^[\s]*\d+[.)]\s+(.+)$', r'\1', text, flags=re.MULTILINE)
+        
+        # 清理多余的空白行（超过2个连续换行）
+        text = re.sub(r'\n{3,}', r'\n\n', text)
+        
+        # 清理行首行尾空白
+        text = text.strip()
+        
+        return text
+    
+    # LLM生成回答
+    def generate_llm_response(user_message, conversation_history, rag_results, weather_info):
+        """
+        使用通义千问API生成智能回答
+        """
+        try:
+            qwen_api_key = os.environ.get("QWEN_API_KEY", "").strip()
+            qwen_api_url = os.environ.get("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+            qwen_model = os.environ.get("QWEN_MODEL", "qwen-plus").strip()
+            
+            if not qwen_api_key:
+                return "哎呀，服务暂时无法使用呢~ 请联系管理员处理一下哦 😊"
+            
+            # 构建系统提示词
+            system_prompt = """你是一个时尚穿搭小助手，像朋友一样给用户提供穿搭建议。你的风格要轻松、友好、自然，就像在和朋友聊天一样。
+
+回复风格要求：
+1. 语气要轻松自然，不要太正式，可以用一些口语化的表达
+2. 适当使用emoji表情（但不要过度，每条回复1-3个即可）
+3. 回复要有层次感，可以用换行分段，让内容更易读
+4. 开头可以用"哈喽"、"嗨"、"来啦"等亲切的打招呼方式
+5. 推荐内容要自然地融入对话，不要生硬地列举
+6. 不要使用Markdown格式（如**粗体**、*斜体*、#标题等），直接使用纯文本，保持简洁美观
+
+你的能力：
+- 根据天气情况推荐合适的穿搭（比如"今天有点冷，建议..."）
+- 根据用户需求推荐相关的穿搭帖子和博主
+- 理解用户的场景化需求（通勤、约会、日常、聚会等）
+- 提供实用又时尚的建议
+
+关于推荐内容：
+1. 推荐的帖子ID和博主ID会由系统自动提取，你只需要自然地提及推荐内容，不要说"帖子ID是xxx"这种话
+2. 如果检索结果标记为"recommendation_type: hot"（热门推荐），可以这样说："虽然没有完全匹配的，但我发现了一些很受欢迎的热门穿搭，你可以看看~"
+3. 如果检索结果标记为"recommendation_type: recommended"（匹配推荐），直接自然地推荐就好，可以说"我找到了几个很符合你需求的穿搭"或"这几个穿搭应该很适合你"
+4. 推荐时可以说"我帮你找到了..."、"你可以看看..."、"推荐你看看..."等自然的话
+
+记住：要像朋友聊天一样，不要像机器人！"""
+            
+            # 构建上下文信息
+            context_info = ""
+            
+            # 添加天气信息
+            if weather_info:
+                context_info += f"\n【天气信息】\n"
+                context_info += f"温度：{weather_info.get('temperature', '未知')}°C\n"
+                context_info += f"天气：{weather_info.get('weather_text', '未知')}\n"
+                context_info += f"位置：{weather_info.get('location', '未知')}\n"
+            
+            # 添加RAG检索结果
+            if rag_results:
+                context_info += f"\n【可推荐的穿搭内容】\n"
+                for i, result in enumerate(rag_results[:5], 1):  # 取前5个给LLM参考
+                    if result.get("type") == "post":
+                        recommendation_type = result.get("recommendation_type", "recommended")
+                        type_label = "热门推荐" if recommendation_type == "hot" else "匹配推荐"
+                        post_content = result.get('content', '')[:80] if result.get('content') else '无文字描述'
+                        user_nickname = result.get('user_nickname', '未知博主')
+                        context_info += f"{i}. 【{type_label}】帖子ID: {result.get('post_id')}\n"
+                        context_info += f"   内容预览: {post_content}\n"
+                        context_info += f"   博主: {user_nickname} (ID: {result.get('user_id')})\n"
+                        tags = result.get('tags', [])
+                        if tags:
+                            context_info += f"   标签: {', '.join(tags[:5])}\n"
+                    elif result.get("type") == "dataset":
+                        label = result.get("label", {})
+                        items = label.get("items", [])
+                        styles = label.get("styles", [])
+                        if items:
+                            context_info += f"{i}. 穿搭单品: {', '.join(items[:3])}\n"
+                            if styles:
+                                context_info += f"   风格: {', '.join(styles[:2])}\n"
+            
+            # 构建消息历史
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # 添加上下文信息
+            if context_info:
+                messages.append({
+                    "role": "system",
+                    "content": f"以下是当前可用的上下文信息：{context_info}"
+                })
+            
+            # 添加对话历史（最近5轮）
+            if conversation_history:
+                for msg in conversation_history[-5:]:
+                    messages.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", "")
+                    })
+            
+            # 添加当前用户消息
+            messages.append({
+                "role": "user",
+                "content": user_message
+            })
+            
+            # 调用通义千问API
+            payload = {
+                "model": qwen_model,
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 1000
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {qwen_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(qwen_api_url, json=payload, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if "choices" in result and len(result["choices"]) > 0:
+                    content = result["choices"][0].get("message", {}).get("content", "").strip()
+                    # 清理Markdown格式，移除星号等符号
+                    content = clean_markdown(content)
+                    return content
+                else:
+                    return "哎呀，我这边暂时没有收到回复呢~ 稍等一下再试试吧 😅"
+            else:
+                error_text = response.text[:200]
+                print(f"通义千问API调用失败，状态码: {response.status_code}, 响应: {error_text}")
+                return "不好意思，服务暂时有点问题，稍后再试试吧~ 💫"
+                
+        except Exception as e:
+            print(f"生成LLM回答失败: {e}")
+            return "哎呀，出了一些小状况，稍后再试试吧~ 如果一直有问题，可以联系管理员哦 😊"
+    
+    # 解析回答中的推荐信息
+    def extract_recommendations(reply_text, rag_results):
+        """
+        从RAG结果中提取推荐的帖子ID和用户ID
+        只从RAG结果中提取，确保推荐的是实际存在的帖子（不依赖LLM文本解析）
+        返回格式：post_ids, user_ids, post_recommendation_types
+        """
+        post_ids = []
+        user_ids = []
+        post_recommendation_types = {}  # {post_id: "recommended" or "hot"}
+        
+        # 只从RAG结果中提取（这些是实际检索到的，确保准确性）
+        for result in rag_results:
+            if result.get("type") == "post":
+                post_id = result.get("post_id")
+                if post_id and post_id not in post_ids:
+                    post_ids.append(post_id)
+                    # 记录推荐类型
+                    recommendation_type = result.get("recommendation_type", "recommended")
+                    post_recommendation_types[post_id] = recommendation_type
+                user_id = result.get("user_id")
+                if user_id and user_id not in user_ids:
+                    user_ids.append(user_id)
+        
+        # 去重并返回
+        return post_ids, user_ids, post_recommendation_types
+    
+    # 聊天API端点
+    @app.route("/api/chat", methods=["POST"])
+    def chat():
+        """
+        智能体聊天接口（MCP+RAG+LLM）
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            user_id = data.get("user_id")
+            message = data.get("message", "").strip()
+            conversation_id = data.get("conversation_id")
+            
+            # 从请求中获取天气信息（前端已获取）
+            temperature = data.get("temperature")
+            weather_text = data.get("weather_text")
+            location = data.get("location")
+            
+            if not user_id:
+                return jsonify({"ok": False, "msg": "需要登录"}), 401
+            
+            if not message:
+                return jsonify({"ok": False, "msg": "消息不能为空"}), 400
+            
+            # 1. MCP：检查是否需要天气信息
+            weather_info = None
+            weather_keywords = ["天气", "温度", "穿搭推荐", "最近", "今天", "明天", "适合", "推荐", "穿搭"]
+            needs_weather = any(keyword in message for keyword in weather_keywords)
+            
+            if needs_weather:
+                # 使用请求中传递的天气信息，或尝试获取
+                weather_info = get_weather_info(temperature, weather_text, location)
+            
+            # 2. RAG：检索相关内容（增加数量以支持多条穿搭推荐）
+            rag_results = rag_search(message, user_id=user_id, weather_info=weather_info, limit=10)
+            
+            # 3. LLM：生成回答
+            # 这里简化处理，实际应该维护对话历史
+            conversation_history = []  # 可以从数据库或缓存中获取
+            reply = generate_llm_response(message, conversation_history, rag_results, weather_info)
+            
+            # 4. 提取推荐信息（优先从RAG结果中提取，确保推荐的是实际存在的帖子）
+            recommended_post_ids, recommended_user_ids, post_recommendation_types = extract_recommendations(reply, rag_results)
+            
+            # 5. 根据实际推荐的帖子数量，在回复末尾添加提示信息
+            post_count = len(recommended_post_ids)
+            has_hot_recommendations = any(post_recommendation_types.get(pid) == "hot" for pid in recommended_post_ids)
+            has_recommended_posts = any(post_recommendation_types.get(pid) == "recommended" for pid in recommended_post_ids)
+            
+            if post_count > 0:
+                # 有推荐帖子，添加提示
+                if not reply.endswith("。") and not reply.endswith("！") and not reply.endswith("？"):
+                    reply += "。"
+                
+                # 根据推荐类型添加不同的提示
+                if has_hot_recommendations and not has_recommended_posts:
+                    # 只有热门推荐
+                    reply += "\n\n目前没有找到完全匹配的帖子，为您推荐一些热门穿搭，您可以参考这些搭配方案。"
+                elif has_recommended_posts and has_hot_recommendations:
+                    # 既有推荐又有热门推荐
+                    reply += "\n\n下面有对应的帖子推荐，您可以参考这些搭配方案。其中部分是根据您的需求匹配的推荐，部分是目前的热门穿搭。"
+                else:
+                    # 只有推荐
+                    reply += "\n\n下面有对应的帖子推荐，您可以参考这些搭配方案。"
+            else:
+                # 没有推荐帖子，添加提示
+                if not reply.endswith("。") and not reply.endswith("！") and not reply.endswith("？"):
+                    reply += "。"
+                reply += "\n\n目前还没有相关的帖子推荐，您可以进行自行搭配，或者尝试更具体的描述。"
+            
+            # 构建响应，包含推荐类型信息
+            # 将post_ids转换为包含推荐类型的对象列表
+            recommended_posts_with_type = []
+            for post_id in recommended_post_ids[:10]:
+                recommended_posts_with_type.append({
+                    "post_id": post_id,
+                    "recommendation_type": post_recommendation_types.get(post_id, "recommended")
+                })
+            
+            response_data = {
+                "ok": True,
+                "reply": reply,
+                "conversation_id": conversation_id or f"conv_{user_id}_{int(datetime.utcnow().timestamp())}",
+                "recommended_posts": recommended_post_ids[:10],  # 保持向后兼容，返回ID列表
+                "recommended_posts_detail": recommended_posts_with_type,  # 新增：包含推荐类型的详细信息
+                "recommended_users": recommended_user_ids[:10]   # 最多返回10个
+            }
+            
+            return jsonify(response_data), 200
+            
+        except Exception as e:
+            print(f"聊天API错误: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({"ok": False, "msg": f"处理请求时出错: {str(e)}"}), 500
 
     return app
 

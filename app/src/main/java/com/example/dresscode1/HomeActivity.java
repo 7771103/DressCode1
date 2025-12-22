@@ -91,6 +91,7 @@ import com.example.dresscode1.network.dto.LikeRequest;
 import com.example.dresscode1.network.dto.LikeResponse;
 import com.example.dresscode1.network.dto.Post;
 import com.example.dresscode1.network.dto.PostListResponse;
+import com.example.dresscode1.network.dto.PostIdsRequest;
 import com.example.dresscode1.network.dto.TagCategoriesResponse;
 import com.example.dresscode1.network.dto.ChatMessage;
 import com.example.dresscode1.network.dto.ChatRequest;
@@ -100,6 +101,9 @@ import java.util.List;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
 import com.example.dresscode1.network.dto.UserInfo;
 import com.example.dresscode1.network.dto.UserInfoResponse;
+import com.example.dresscode1.network.dto.UserListItem;
+import com.example.dresscode1.network.dto.UserListResponse;
+import com.example.dresscode1.network.dto.UserIdsRequest;
 import com.example.dresscode1.network.dto.TryOnRequest;
 import com.example.dresscode1.network.dto.TryOnResponse;
 import com.example.dresscode1.network.dto.WardrobeItem;
@@ -1266,9 +1270,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
 
         tvTitle.setText("首页");
         updateHomeFeedTabStyle();
-        // 筛选栏只在"推荐"标签页显示
+        // 筛选栏只在"推荐"标签页显示，且tagCategories已加载
         if (hsvFilters != null) {
+            if ("recommend".equals(currentHomeFeedTab) && !tagCategories.isEmpty()) {
             hsvFilters.setVisibility(View.VISIBLE);
+            } else {
+                hsvFilters.setVisibility(View.GONE);
+            }
         }
         
         // 设置 RecyclerView - 使用瀑布流布局（2列）
@@ -1321,6 +1329,67 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 初始化对话相关
         messageAdapter = new MessageAdapter();
+        messageAdapter.setOnRecommendationClickListener(new MessageAdapter.OnRecommendationClickListener() {
+            @Override
+            public void onPostClick(int postId) {
+                // 从消息列表中查找对应的Post对象
+                Post targetPost = null;
+                for (ChatMessage message : messageAdapter.getMessages()) {
+                    if (message.getRecommendedPostObjects() != null) {
+                        for (Post post : message.getRecommendedPostObjects()) {
+                            if (post.getId() == postId) {
+                                targetPost = post;
+                                break;
+                            }
+                        }
+                    }
+                    if (targetPost != null) break;
+                }
+                
+                if (targetPost != null) {
+                    // 直接使用找到的Post对象跳转
+                    Intent intent = new Intent(HomeActivity.this, PostDetailActivity.class);
+                    intent.putExtra("post", targetPost);
+                    startActivity(intent);
+                } else {
+                    // 如果找不到，则通过API加载
+                    ApiClient.getService().getPosts(1, 100, currentUserId > 0 ? currentUserId : null, null, null, null, null)
+                            .enqueue(new Callback<PostListResponse>() {
+                                @Override
+                                public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                                    if (response.isSuccessful() && response.body() != null) {
+                                        PostListResponse postListResponse = response.body();
+                                        if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                            // 查找对应的帖子
+                                            for (Post post : postListResponse.getData()) {
+                                                if (post.getId() == postId) {
+                                                    Intent intent = new Intent(HomeActivity.this, PostDetailActivity.class);
+                                                    intent.putExtra("post", post);
+                                                    startActivity(intent);
+                                                    return;
+                                                }
+                                            }
+                                            Toast.makeText(HomeActivity.this, "未找到该帖子", Toast.LENGTH_SHORT).show();
+                                        }
+                                    }
+                                }
+
+                                @Override
+                                public void onFailure(Call<PostListResponse> call, Throwable t) {
+                                    Toast.makeText(HomeActivity.this, "加载帖子失败", Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                }
+            }
+
+            @Override
+            public void onUserClick(int userId) {
+                // 跳转到博主主页
+                Intent intent = new Intent(HomeActivity.this, UserProfileActivity.class);
+                intent.putExtra("user_id", userId);
+                startActivity(intent);
+            }
+        });
         LinearLayoutManager chatLayoutManager = new LinearLayoutManager(this);
         chatLayoutManager.setStackFromEnd(true); // 从底部开始显示
         rvChatMessages.setLayoutManager(chatLayoutManager);
@@ -1463,8 +1532,11 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         // 显示加载状态
         setChatLoading(true);
 
-        // 发送请求到后端
+        // 发送请求到后端（包含天气信息用于MCP工具）
         ChatRequest request = new ChatRequest(currentUserId, messageText, conversationId);
+        request.setTemperature(currentWeatherTemp);
+        request.setWeatherText(currentWeatherText);
+        request.setLocation(currentWeatherCity);
         ApiClient.getService().sendChatMessage(request)
                 .enqueue(new Callback<ChatResponse>() {
                     @Override
@@ -1478,10 +1550,40 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                                     conversationId = chatResponse.getConversationId();
                                 }
 
-                                // 添加AI回复到列表
+                                // 添加AI回复到列表（包含推荐的帖子和博主信息）
+                                List<Integer> recommendedPosts = chatResponse.getRecommendedPosts();
+                                List<Integer> recommendedUsers = chatResponse.getRecommendedUsers();
+                                
+                                // 处理推荐类型信息
+                                java.util.Map<Integer, String> postRecommendationTypes = new java.util.HashMap<>();
+                                if (chatResponse.getRecommendedPostsDetail() != null) {
+                                    for (ChatResponse.RecommendedPostDetail detail : chatResponse.getRecommendedPostsDetail()) {
+                                        if (detail.getPostId() != null) {
+                                            postRecommendationTypes.put(detail.getPostId(), 
+                                                detail.getRecommendationType() != null ? detail.getRecommendationType() : "recommended");
+                                        }
+                                    }
+                                }
+                                
+                                Log.d("HomeActivity", "Received recommended posts: " + 
+                                    (recommendedPosts != null ? recommendedPosts.toString() : "null") + 
+                                    ", count: " + (recommendedPosts != null ? recommendedPosts.size() : 0));
+                                Log.d("HomeActivity", "Received recommended users: " + 
+                                    (recommendedUsers != null ? recommendedUsers.toString() : "null") + 
+                                    ", count: " + (recommendedUsers != null ? recommendedUsers.size() : 0));
+                                Log.d("HomeActivity", "Received recommendation types: " + postRecommendationTypes.toString());
+                                
                                 ChatMessage assistantMessage = new ChatMessage("assistant", chatResponse.getReply());
+                                assistantMessage.setRecommendedPosts(recommendedPosts);
+                                assistantMessage.setRecommendedUsers(recommendedUsers);
+                                assistantMessage.setPostRecommendationTypes(postRecommendationTypes);
+                                
+                                // 先添加消息，然后异步加载推荐的帖子和博主详情
                                 messageAdapter.addMessage(assistantMessage);
                                 scrollChatToBottom();
+                                
+                                // 加载推荐的帖子和博主详情
+                                loadRecommendedPostsAndUsers(recommendedPosts, recommendedUsers, assistantMessage);
                             } else {
                                 Toast.makeText(HomeActivity.this, 
                                     chatResponse.getMsg() != null ? chatResponse.getMsg() : "获取回复失败", 
@@ -1512,6 +1614,81 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
                 rvChatMessages.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
             }
         });
+    }
+
+    /**
+     * 加载推荐的帖子和博主详情
+     */
+    private void loadRecommendedPostsAndUsers(List<Integer> postIds, List<Integer> userIds, ChatMessage message) {
+        if ((postIds == null || postIds.isEmpty()) && (userIds == null || userIds.isEmpty())) {
+            return;
+        }
+
+        // 加载帖子详情 - 使用新的API接口通过ID列表获取
+        if (postIds != null && !postIds.isEmpty()) {
+            PostIdsRequest request = new PostIdsRequest(postIds, currentUserId > 0 ? currentUserId : null);
+            ApiClient.getService().getPostsByIds(request)
+                    .enqueue(new Callback<PostListResponse>() {
+                        @Override
+                        public void onResponse(Call<PostListResponse> call, Response<PostListResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                PostListResponse postListResponse = response.body();
+                                if (postListResponse.isOk() && postListResponse.getData() != null) {
+                                    message.setRecommendedPostObjects(postListResponse.getData());
+                                    Log.d("HomeActivity", "Loaded " + postListResponse.getData().size() + " recommended posts by IDs");
+                                    // 更新消息显示
+                                    int messageIndex = messageAdapter.getMessages().indexOf(message);
+                                    if (messageIndex >= 0) {
+                                        messageAdapter.notifyItemChanged(messageIndex);
+                                    }
+                                } else {
+                                    Log.w("HomeActivity", "Failed to load recommended posts: " + 
+                                        (postListResponse != null ? postListResponse.getMsg() : "Unknown error"));
+                                }
+                            } else {
+                                Log.w("HomeActivity", "Failed to load recommended posts: HTTP " + response.code());
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<PostListResponse> call, Throwable t) {
+                            Log.e("HomeActivity", "Failed to load recommended posts", t);
+                        }
+                    });
+        }
+
+        // 加载用户详情 - 使用新的API接口通过ID列表获取
+        if (userIds != null && !userIds.isEmpty()) {
+            UserIdsRequest request = new UserIdsRequest(userIds, currentUserId > 0 ? currentUserId : null);
+            ApiClient.getService().getUsersByIds(request)
+                    .enqueue(new Callback<UserListResponse>() {
+                        @Override
+                        public void onResponse(Call<UserListResponse> call, Response<UserListResponse> response) {
+                            if (response.isSuccessful() && response.body() != null) {
+                                UserListResponse userListResponse = response.body();
+                                if (userListResponse.isOk() && userListResponse.getData() != null) {
+                                    message.setRecommendedUserObjects(userListResponse.getData());
+                                    Log.d("HomeActivity", "Loaded " + userListResponse.getData().size() + " recommended users by IDs");
+                                    // 更新消息显示
+                                    int messageIndex = messageAdapter.getMessages().indexOf(message);
+                                    if (messageIndex >= 0) {
+                                        messageAdapter.notifyItemChanged(messageIndex);
+                                    }
+                                } else {
+                                    Log.w("HomeActivity", "Failed to load recommended users: " + 
+                                        (userListResponse != null ? userListResponse.getMsg() : "Unknown error"));
+                                }
+                            } else {
+                                Log.w("HomeActivity", "Failed to load recommended users: HTTP " + response.code());
+                            }
+                        }
+
+                        @Override
+                        public void onFailure(Call<UserListResponse> call, Throwable t) {
+                            Log.e("HomeActivity", "Failed to load recommended users", t);
+                        }
+                    });
+        }
     }
 
     private void switchToHome() {
@@ -3058,13 +3235,13 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         Log.d("HomeActivity", "Total filter buttons added: " + buttonCount);
         
-        // 确保筛选栏在"推荐"标签页时可见
-        if ("recommend".equals(currentHomeFeedTab)) {
+        // 确保筛选栏在"推荐"标签页时可见，且tagCategories不为空
+        if ("recommend".equals(currentHomeFeedTab) && !tagCategories.isEmpty()) {
             hsvFilters.setVisibility(View.VISIBLE);
             Log.d("HomeActivity", "Filter bar set to VISIBLE, currentHomeFeedTab=" + currentHomeFeedTab);
         } else {
             hsvFilters.setVisibility(View.GONE);
-            Log.d("HomeActivity", "Filter bar set to GONE, currentHomeFeedTab=" + currentHomeFeedTab);
+            Log.d("HomeActivity", "Filter bar set to GONE, currentHomeFeedTab=" + currentHomeFeedTab + ", tagCategories empty=" + tagCategories.isEmpty());
         }
     }
     

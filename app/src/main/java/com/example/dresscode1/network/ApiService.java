@@ -18,6 +18,7 @@ import com.example.dresscode1.network.dto.ChangePasswordRequest;
 import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.UserInfoResponse;
 import com.example.dresscode1.network.dto.UserListResponse;
+import com.example.dresscode1.network.dto.UserIdsRequest;
 import com.example.dresscode1.network.dto.UploadAvatarResponse;
 import com.example.dresscode1.network.dto.UploadPostImageResponse;
 import com.example.dresscode1.network.dto.UploadUserPhotoResponse;
@@ -29,8 +30,8 @@ import com.example.dresscode1.network.dto.TryOnResponse;
 import com.example.dresscode1.network.dto.TryOnHistoryResponse;
 import com.example.dresscode1.network.dto.WardrobeItemListResponse;
 import com.example.dresscode1.network.dto.AddWardrobeItemRequest;
-import com.example.dresscode1.network.dto.BaseResponse;
 import com.example.dresscode1.network.dto.TagCategoriesResponse;
+import com.example.dresscode1.network.dto.PostIdsRequest;
 
 import okhttp3.MultipartBody;
 import retrofit2.Call;
@@ -66,6 +67,16 @@ public interface ApiService {
             @Query("temperature") String temperature,
             @Query("weather_text") String weatherText
     );
+    
+    // 通过ID列表获取帖子详情
+    @Headers("Content-Type: application/json")
+    @POST("/api/posts/by-ids")
+    Call<PostListResponse> getPostsByIds(@Body PostIdsRequest request);
+    
+    // 通过ID列表获取用户详情
+    @Headers("Content-Type: application/json")
+    @POST("/api/users/by-ids")
+    Call<UserListResponse> getUsersByIds(@Body UserIdsRequest request);
     
     // 获取标签分类
     @GET("/api/tags/categories")

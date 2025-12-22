@@ -17,10 +17,11 @@
         android:contentDescription="AI助手头像" />
 
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:orientation="vertical"
-        android:maxWidth="280dp"
+        android:maxWidth="400dp"
         android:background="@drawable/bg_message_assistant"
         android:padding="12dp">
 
@@ -32,6 +33,73 @@
             android:textColor="@color/text_primary_dark"
             android:textSize="14sp"
             android:lineSpacingExtra="2dp" />
+
+        <LinearLayout
+            android:id="@+id/llRecommendations"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginTop="8dp">
+
+            <!-- 推荐帖子标题和水平滑动列表 -->
+            <LinearLayout
+                android:id="@+id/llRecommendedPosts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:id="@+id/tvRecommendedPostsTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📌 推荐帖子"
+                    android:textColor="@color/text_primary_dark"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="4dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvRecommendedPosts"
+                    android:layout_width="match_parent"
+                    android:layout_height="200dp"
+                    android:orientation="horizontal"
+                    android:clipToPadding="false"
+                    android:clipChildren="false"
+                    android:scrollbars="none"
+                    android:nestedScrollingEnabled="true" />
+            </LinearLayout>
+
+            <!-- 推荐博主标题和水平滑动列表 -->
+            <LinearLayout
+                android:id="@+id/llRecommendedUsers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👤 推荐博主"
+                    android:textColor="@color/text_primary_dark"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="4dp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvRecommendedUsers"
+                    android:layout_width="match_parent"
+                    android:layout_height="110dp"
+                    android:orientation="horizontal"
+                    android:clipToPadding="false"
+                    android:clipChildren="false"
+                    android:scrollbars="none"
+                    android:nestedScrollingEnabled="true" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
 
