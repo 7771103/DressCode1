@@ -2491,7 +2491,7 @@ public class HomeActivity extends AppCompatActivity implements PostAdapter.OnPos
         
         // 加载头像
         if (userInfo.getAvatar() != null && !userInfo.getAvatar().isEmpty()) {
-            String avatarUrl = "http://10.134.17.29:5000" + userInfo.getAvatar();
+            String avatarUrl = com.example.dresscode1.network.ApiClient.getAvatarUrl(userInfo.getAvatar());
             Glide.with(this).load(avatarUrl).into(ivAvatar);
         } else {
             // 显示默认头像或昵称首字符

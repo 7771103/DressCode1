@@ -261,7 +261,7 @@ public class EditProfileActivity extends AppCompatActivity {
 
         // 加载头像
         if (userInfo.getAvatar() != null && !userInfo.getAvatar().isEmpty()) {
-            String avatarUrl = "http://10.134.17.29:5000" + userInfo.getAvatar();
+            String avatarUrl = com.example.dresscode1.network.ApiClient.getAvatarUrl(userInfo.getAvatar());
             Glide.with(this).load(avatarUrl).into(ivAvatar);
         }
     }
@@ -412,7 +412,7 @@ public class EditProfileActivity extends AppCompatActivity {
                                 if (uploadResponse.isOk()) {
                                     // 头像上传成功，立即更新显示
                                     if (uploadResponse.getAvatar() != null && !uploadResponse.getAvatar().isEmpty()) {
-                                        String avatarUrl = "http://10.134.17.29:5000" + uploadResponse.getAvatar();
+                                        String avatarUrl = com.example.dresscode1.network.ApiClient.getAvatarUrl(uploadResponse.getAvatar());
                                         Glide.with(EditProfileActivity.this).load(avatarUrl).into(ivAvatar);
                                     }
                                     // 更新用户信息

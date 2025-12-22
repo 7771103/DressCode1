@@ -167,7 +167,7 @@ public class UserProfileActivity extends AppCompatActivity implements PostAdapte
 
         // 加载头像
         if (userInfo.getAvatar() != null && !userInfo.getAvatar().isEmpty()) {
-            String avatarUrl = "http://10.134.17.29:5000" + userInfo.getAvatar();
+            String avatarUrl = com.example.dresscode1.network.ApiClient.getAvatarUrl(userInfo.getAvatar());
             Glide.with(this).load(avatarUrl).into(ivAvatar);
         } else {
             ivAvatar.setImageResource(android.R.drawable.ic_menu_gallery);

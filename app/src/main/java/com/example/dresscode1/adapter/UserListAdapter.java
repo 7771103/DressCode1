@@ -114,7 +114,7 @@ public class UserListAdapter extends RecyclerView.Adapter<UserListAdapter.UserVi
 
             // 加载头像
             if (user.getAvatar() != null && !user.getAvatar().isEmpty()) {
-                String avatarUrl = "http://10.134.17.29:5000" + user.getAvatar();
+                String avatarUrl = com.example.dresscode1.network.ApiClient.getAvatarUrl(user.getAvatar());
                 Glide.with(itemView.getContext()).load(avatarUrl).into(ivAvatar);
             } else {
                 ivAvatar.setImageResource(android.R.drawable.ic_menu_gallery);
